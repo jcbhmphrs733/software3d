@@ -1,0 +1,27 @@
+# executables
+*.exe
+*.out
+
+# object files
+*.o
+*.obj
+
+# libraries
+*.a
+*.lib
+*.dll
+
+# debug files
+*.pdb
+
+# build folders
+build/
+bin/
+
+# cmake
+CMakeFiles/
+CMakeCache.txt
+cmake-build*/
+
+# vscode temporary files
+.vscode/*.log
