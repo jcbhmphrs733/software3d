@@ -1,10 +1,10 @@
-Software 3D Rasterizer
+# Software 3D Rasterizer
 This project is a minimal software-based 3D rasterizer built from scratch in C++. The primary goal is to gain a deep, first-principles understanding of the graphics rendering pipeline by manually implementing the math and algorithms usually handled by a GPU.
 
-Project Overview
+# Project Overview
 The rasterizer bypasses modern hardware acceleration to manually convert 3D geometric data into a 2D image. It uses OpenGL solely as a means to display the final pixel buffer to the screen.
 
-Core Features
+# Core Features
 3D Model Loading: Support for loading and parsing simple .obj files.
 
 Transformation Pipeline: Implementation of Model, View, and Projection matrices to handle 3D space.
@@ -15,7 +15,7 @@ Triangle Rasterization: A custom algorithm to fill and render triangles onto a p
 
 Version Control: Managed via GitHub for iterative development and tracking.
 
-Technical Stack
+# Technical Stack
 Language: C++
 
 Window Management: GLFW
@@ -25,7 +25,7 @@ Display API: OpenGL (for frame buffer presentation)
 Build System: CMake / Standard C++ compiler
 
 
-Contributors
+# Contributors
 Trystan Jones
 
 Jacob Humphreys
