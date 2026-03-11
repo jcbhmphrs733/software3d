@@ -28,7 +28,7 @@ Build System: CMake / Standard C++ compiler
 # Contributors
 Trystan Jones - "Work Hard, Play Hard"
 
-Jacob Humphreys
+Jacob Humphreys - "If at first you do succeed, try to not look so suprised."
 
 Erick Orellana
 
