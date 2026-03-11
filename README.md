@@ -26,7 +26,7 @@ Build System: CMake / Standard C++ compiler
 
 
 # Contributors
-Trystan Jones
+Trystan Jones - "Work Hard, Play Hard"
 
 Jacob Humphreys
 
