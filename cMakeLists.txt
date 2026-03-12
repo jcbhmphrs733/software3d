@@ -1,0 +1,27 @@
+cmake_minimum_required(VERSION 3.16)
+project(software3d)
+
+# Require C++17
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find GLFW (installed via MSYS2)
+find_package(glfw3 3.3 REQUIRED)
+
+# Automatically collect all .cpp files under src/math/
+file(GLOB MATH_SOURCES src/math/*.cpp)
+
+# Define the executable and all source files
+add_executable(software3d
+    src/main.cpp
+    src/glad.c
+    ${MATH_SOURCES}
+)
+
+# Add include directories so #include "glad/glad.h", "math/vec3.h", etc. all resolve
+target_include_directories(software3d PRIVATE
+    include
+)
+
+# Link against GLFW and Windows OpenGL
+target_link_libraries(software3d PRIVATE glfw opengl32)
