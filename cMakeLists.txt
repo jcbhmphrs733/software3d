@@ -8,6 +8,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Find GLFW (installed via MSYS2)
 find_package(glfw3 3.3 REQUIRED)
 
+# Find OpenGL (for Windows and Mac)
+find_package(OpenGL REQUIRED)
+
 # Automatically collect all .cpp files under src/math/
 file(GLOB MATH_SOURCES src/math/*.cpp)
 
@@ -23,5 +26,11 @@ target_include_directories(software3d PRIVATE
     include
 )
 
-# Link against GLFW and Windows OpenGL
-target_link_libraries(software3d PRIVATE glfw opengl32)
+# Link against GLFW and Windows OpenGL and Mac
+    # if(WIN32)
+    #     target_link_libraries(software3d PRIVATE glfw opengl32)
+    # elseif(APPLE)
+    #     target_link_libraries(software3d PRIVATE glfw "-framework OpenGL")
+    # endif()
+
+target_link_libraries(software3d PRIVATE glfw OpenGL::GL)
