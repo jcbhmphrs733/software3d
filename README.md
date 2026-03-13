@@ -30,6 +30,6 @@ Trystan Jones - "Work Hard, Play Hard"
 
 Jacob Humphreys - "If at first you do succeed, try to not look so suprised."
 
-Erick Orellana
+Erick Orellana - "It's never too late to learn something new."
 
 Dakota Haithcock
