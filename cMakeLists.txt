@@ -19,6 +19,7 @@ file(GLOB MESH_SOURCES src/mesh/*.cpp)
 add_executable(software3d
     src/main.cpp
     src/glad.c
+    src/framebuffer.cpp
     ${MATH_SOURCES}
     ${MESH_SOURCES}
 )
@@ -36,3 +37,9 @@ target_include_directories(software3d PRIVATE
     # endif()
 
 target_link_libraries(software3d PRIVATE glfw OpenGL::GL)
+
+add_custom_command(TARGET software3d POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/assets
+    ${CMAKE_CURRENT_BINARY_DIR}/assets
+)
