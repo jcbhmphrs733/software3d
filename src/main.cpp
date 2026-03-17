@@ -3,12 +3,15 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <cstdlib>
+#include <ctime>
 #include "math/vec2.h"
 #include "math/vec3.h"
 #include "math/vec4.h"
 #include "math/mat4.h"
 #include "mesh/obj_loader.h"
 #include "framebuffer.h"
+#include "rasterizer.h"
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow *window);
@@ -120,21 +123,33 @@ void SetupResources() {
     fb = new Framebuffer(WINDOW_WIDTH, WINDOW_HEIGHT);
 }
 
-void RunRenderLoop(GLFWwindow* window) {
-    uint32_t red = 0xFF0000FF;
-    uint32_t green = 0x00FF00FF;
-    int centerX = WINDOW_WIDTH / 2;
-    int centerY = WINDOW_HEIGHT / 2;
+void RunRenderLoop(GLFWwindow* window,
+                   const std::vector<Vec2>& screenVerts,
+                   const std::vector<unsigned int>& indices) {
+
+    // generate one random color per face (2 triangles per face)
+    std::srand((unsigned int)std::time(nullptr));
+    const int faceCount = 6;
+    uint32_t faceColors[faceCount];
+    for (int i = 0; i < faceCount; i++) {
+        unsigned char r = (unsigned char)(std::rand() % 256);
+        unsigned char g = (unsigned char)(std::rand() % 256);
+        unsigned char b = (unsigned char)(std::rand() % 256);
+        faceColors[i] = (r << 24) | (g << 16) | (b << 8) | 0xFF;
+    }
 
     while (!glfwWindowShouldClose(window)) {
         processInput(window);
 
         fb->clear(0x000000FF);
 
-
-        for (int i = -10; i <= 10; ++i) {
-            fb->setPixel(centerX + i, centerY, green);
-            fb->setPixel(centerX, centerY + i, green);
+        // rasterize every triangle
+        for (size_t i = 0; i < indices.size(); i += 3) {
+            Vec2 a = screenVerts[indices[i]];
+            Vec2 b = screenVerts[indices[i + 1]];
+            Vec2 c = screenVerts[indices[i + 2]];
+            uint32_t color = faceColors[(i / 6) % faceCount]; // 2 triangles per face
+            DrawTriangle(*fb, a, b, c, color);
         }
 
         glBindTexture(GL_TEXTURE_2D, textureID);
@@ -221,8 +236,8 @@ int main() {
         return -1;
     }
     
-    SetupResources(); 
-    RunRenderLoop(window);
+    SetupResources();
+    RunRenderLoop(window, screenVerts, cube.indices);
     Cleanup(window);
 
     return 0;

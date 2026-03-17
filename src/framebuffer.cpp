@@ -1,4 +1,4 @@
-#include "framebuffer.h"
+#include "framebuffer.h" // resolved from include/ via CMakeLists.txt target_include_directories
 
 // Framebuffer.cpp
 // Implements a simple software framebuffer that stores pixel data in CPU memory.
