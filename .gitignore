@@ -6,6 +6,9 @@
 *.o
 *.obj
 
+# but track 3D model assets
+!assets/**/*.obj
+
 # libraries
 *.a
 *.lib

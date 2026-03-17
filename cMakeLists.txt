@@ -11,14 +11,16 @@ find_package(glfw3 3.3 REQUIRED)
 # Find OpenGL (for Windows and Mac)
 find_package(OpenGL REQUIRED)
 
-# Automatically collect all .cpp files under src/math/
+# Automatically collect all .cpp files under src/math/ and src/mesh/
 file(GLOB MATH_SOURCES src/math/*.cpp)
+file(GLOB MESH_SOURCES src/mesh/*.cpp)
 
 # Define the executable and all source files
 add_executable(software3d
     src/main.cpp
     src/glad.c
     ${MATH_SOURCES}
+    ${MESH_SOURCES}
 )
 
 # Add include directories so #include "glad/glad.h", "math/vec3.h", etc. all resolve

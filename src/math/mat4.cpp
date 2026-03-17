@@ -1,9 +1,10 @@
 #include "math/mat4.h"
 
+//default constructor
 Mat4::Mat4() {
-    // Initialize the matrix to the i
+    // Initialize the matrix to all zeros
     for (int i = 0; i < 16; ++i) {
-        m[i] = 0.0f; // create an empty matrix
+        m[i] = 0.0f; 
     }
 }
 

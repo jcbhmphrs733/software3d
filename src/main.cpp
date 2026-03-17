@@ -1,6 +1,8 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
+#include "math/vec3.h"
+#include "mesh/obj_loader.h"
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow *window);
@@ -66,7 +68,7 @@ void SetupResources() {
         glDeleteShader(fragmentShader);
 
         float vertices[] = {
-             0.0f,  0.5f, 0.0f,
+             0.0f,  1.0f, 0.0f,
             -0.5f, -0.5f, 0.0f,
              0.5f, -0.5f, 0.0f
         };
@@ -113,6 +115,21 @@ void Cleanup(GLFWwindow* window) {
 }
 
 int main() {
+
+
+    // --- ObjLoader test ---
+    ObjLoader loader;
+    Mesh cube = loader.load("../assets/models/cube.obj");
+
+    std::cout << "Vertices loaded: " << cube.vertices.size() << "\n";
+    for (const Vec3& v : cube.vertices) {
+        std::cout << "  v " << v.x << " " << v.y << " " << v.z << "\n";
+    }
+
+    std::cout << "Indices loaded: " << cube.indices.size() << "\n";
+    std::cout << "Triangles: " << cube.indices.size() / 3 << "\n";
+    // --- end test ---
+
     GLFWwindow* window = InitializeWindow(); 
     if (!window) {
         return -1;
