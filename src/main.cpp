@@ -1,7 +1,12 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
+#include <vector>
+#include <cmath>
+#include "math/vec2.h"
 #include "math/vec3.h"
+#include "math/vec4.h"
+#include "math/mat4.h"
 #include "mesh/obj_loader.h"
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
@@ -129,6 +134,46 @@ int main() {
     std::cout << "Indices loaded: " << cube.indices.size() << "\n";
     std::cout << "Triangles: " << cube.indices.size() / 3 << "\n";
     // --- end test ---
+
+    // --- Transformation stage ---
+    // 1. build the three matrices
+    Mat4 model      = Mat4::identity();
+    Mat4 view       = Mat4::lookAt(
+                        Vec3(0.0f, 0.0f, 3.0f),   // eye: camera sits 3 units back on Z
+                        Vec3(0.0f, 0.0f, 0.0f),   // target: looking at the origin
+                        Vec3(0.0f, 1.0f, 0.0f)    // up: world up is +Y
+                      );
+    Mat4 projection = Mat4::perspective(
+                        3.14159f / 4.0f,                          // fovY: 45 degrees in radians
+                        (float)WINDOW_WIDTH / (float)WINDOW_HEIGHT, // aspect ratio
+                        0.1f,                                      // near plane
+                        100.0f                                     // far plane
+                      );
+    Mat4 MVP = projection * view * model;
+
+    // 2. project each vertex to screen space
+    std::vector<Vec2> screenVerts;
+    for (const Vec3& v : cube.vertices) {
+        // transform to clip space
+        Vec4 clip = MVP * Vec4(v.x, v.y, v.z, 1.0f);
+
+        // perspective divide -> NDC (normalized device coordinates, range [-1, 1])
+        Vec3 ndc = Vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
+
+        // viewport transform -> pixel coordinates
+        Vec2 pixel = Vec2(
+            (ndc.x + 1.0f) / 2.0f * WINDOW_WIDTH,
+            (1.0f - ndc.y) / 2.0f * WINDOW_HEIGHT  // y flipped: screen y goes downward
+        );
+        screenVerts.push_back(pixel);
+    }
+
+    // print screen positions to verify
+    std::cout << "\nProjected screen positions:\n";
+    for (size_t i = 0; i < screenVerts.size(); i++) {
+        std::cout << "  v" << i << ": (" << screenVerts[i].x << ", " << screenVerts[i].y << ")\n";
+    }
+    // --- end transformation stage ---
 
     GLFWwindow* window = InitializeWindow(); 
     if (!window) {
