@@ -125,9 +125,9 @@ void SetupResources() {
 
 void RunRenderLoop(GLFWwindow* window,
                    const std::vector<Vec2>& screenVerts,
+                   const std::vector<float>& screenDepths,
                    const std::vector<unsigned int>& indices) {
 
-    // generate one random color per face (2 triangles per face)
     std::srand((unsigned int)std::time(nullptr));
     const int faceCount = 6;
     uint32_t faceColors[faceCount];
@@ -142,14 +142,25 @@ void RunRenderLoop(GLFWwindow* window,
         processInput(window);
 
         fb->clear(0x000000FF);
+        fb->clearDepth();
 
-        // rasterize every triangle
+        // rasterize every triangle with depth testing
+        for (size_t i = 0; i < indices.size(); i += 3) {
+            unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+            Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
+            float za = screenDepths[i0], zb = screenDepths[i1], zc = screenDepths[i2];
+            uint32_t color = faceColors[(i / 6) % faceCount];
+            DrawTriangle(*fb, a, b, c, za, zb, zc, color);
+        }
+
+        // draw wireframe edges on top
         for (size_t i = 0; i < indices.size(); i += 3) {
             Vec2 a = screenVerts[indices[i]];
-            Vec2 b = screenVerts[indices[i + 1]];
-            Vec2 c = screenVerts[indices[i + 2]];
-            uint32_t color = faceColors[(i / 6) % faceCount]; // 2 triangles per face
-            DrawTriangle(*fb, a, b, c, color);
+            Vec2 b = screenVerts[indices[i+1]];
+            Vec2 c = screenVerts[indices[i+2]];
+            DrawLine(*fb, a, b, 0x000000FF);
+            DrawLine(*fb, b, c, 0x000000FF);
+            DrawLine(*fb, c, a, 0x000000FF);
         }
 
         glBindTexture(GL_TEXTURE_2D, textureID);
@@ -208,20 +219,18 @@ int main() {
     Mat4 MVP = projection * view * model;
 
     // 2. project each vertex to screen space
-    std::vector<Vec2> screenVerts;
+    std::vector<Vec2>  screenVerts;
+    std::vector<float> screenDepths; // NDC z per vertex, range [0,1]
     for (const Vec3& v : cube.vertices) {
-        // transform to clip space
         Vec4 clip = MVP * Vec4(v.x, v.y, v.z, 1.0f);
+        Vec3 ndc  = Vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
 
-        // perspective divide -> NDC (normalized device coordinates, range [-1, 1])
-        Vec3 ndc = Vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
-
-        // viewport transform -> pixel coordinates
         Vec2 pixel = Vec2(
             (ndc.x + 1.0f) / 2.0f * WINDOW_WIDTH,
-            (1.0f - ndc.y) / 2.0f * WINDOW_HEIGHT  // y flipped: screen y goes downward
+            (1.0f - ndc.y) / 2.0f * WINDOW_HEIGHT
         );
         screenVerts.push_back(pixel);
+        screenDepths.push_back((ndc.z + 1.0f) / 2.0f); // remap [-1,1] -> [0,1]
     }
 
     // print screen positions to verify
@@ -237,7 +246,7 @@ int main() {
     }
     
     SetupResources();
-    RunRenderLoop(window, screenVerts, cube.indices);
+    RunRenderLoop(window, screenVerts, screenDepths, cube.indices);
     Cleanup(window);
 
     return 0;
