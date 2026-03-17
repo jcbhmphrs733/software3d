@@ -13,7 +13,7 @@
 #include "framebuffer.h"
 #include "rasterizer.h"
 
-void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void processInput(GLFWwindow *window);
 
 const int WINDOW_WIDTH = 800;
@@ -42,8 +42,10 @@ const char *fragmentShaderSource = "#version 330 core\n"
     "   FragColor = texture(ourTexture, TexCoord);\n"
     "}\n\0";
 
-GLFWwindow* InitializeWindow() {
-    if (!glfwInit()) return nullptr;
+GLFWwindow *InitializeWindow()
+{
+    if (!glfwInit())
+        return nullptr;
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -58,7 +60,8 @@ GLFWwindow* InitializeWindow() {
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
+    {
         std::cerr << "Failed to initialize GLAD\n";
         return nullptr;
     }
@@ -192,10 +195,11 @@ void Cleanup(GLFWwindow* window) {
 
 int main() {
     ObjLoader loader;
-    Mesh cube = loader.load("assets/models/cube.obj");
+    Mesh cube = loader.load("assets/models/sphere.obj");
 
     std::cout << "Vertices loaded: " << cube.vertices.size() << "\n";
-    for (const Vec3& v : cube.vertices) {
+    for (const Vec3 &v : cube.vertices)
+    {
         std::cout << "  v " << v.x << " " << v.y << " " << v.z << "\n";
     }
 
@@ -240,8 +244,9 @@ int main() {
     }
     // --- end transformation stage ---
 
-    GLFWwindow* window = InitializeWindow(); 
-    if (!window) {
+    GLFWwindow *window = InitializeWindow();
+    if (!window)
+    {
         return -1;
     }
     
@@ -252,11 +257,13 @@ int main() {
     return 0;
 }
 
-void processInput(GLFWwindow *window) {
+void processInput(GLFWwindow *window)
+{
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 }
 
-void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+void framebuffer_size_callback(GLFWwindow *window, int width, int height)
+{
     glViewport(0, 0, width, height);
 }
