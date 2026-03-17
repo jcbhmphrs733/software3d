@@ -42,6 +42,8 @@ const char *fragmentShaderSource = "#version 330 core\n"
     "   FragColor = texture(ourTexture, TexCoord);\n"
     "}\n\0";
 
+
+// Ask GLFW to create an OS window and hook OpenGL into it. Returning a pointer to the window, or nullptr on failure.
 GLFWwindow *InitializeWindow()
 {
     if (!glfwInit())
@@ -58,6 +60,8 @@ GLFWwindow *InitializeWindow()
     }
 
     glfwMakeContextCurrent(window);
+
+    //registering a function that GLFW uses to change the viewport when the window is resized.
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
@@ -70,6 +74,8 @@ GLFWwindow *InitializeWindow()
 }
 
 void SetupResources() {
+
+    // GLuint are unsigned integers that act as an ID for the shader living on the GPU. We can use these IDs to reference the shader when we want to use it.
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
     glCompileShader(vertexShader);
@@ -78,14 +84,17 @@ void SetupResources() {
     glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
     glCompileShader(fragmentShader);
 
+    // After compiling the shaders, we need to link them into a shader program that can be used for rendering. The shader program is also identified by an GLuint ID.
     shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
     glAttachShader(shaderProgram, fragmentShader);
     glLinkProgram(shaderProgram);
 
+    // Once the shaders are linked into a program, we can delete the individual shader objects as they are no longer needed.
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
+    // a full-screen quad (two triangles) with interleaved position and UV attributes
     float vertices[] = {
          1.0f,  1.0f,   1.0f, 1.0f, 
          1.0f, -1.0f,   1.0f, 0.0f, 
@@ -97,32 +106,46 @@ void SetupResources() {
         1, 2, 3  
     };
 
+    // VAO (Vertex Array Object) stores the configuration of vertex attributes and which VBOs to use. 
     glGenVertexArrays(1, &VAO);
+
+    // VBO (Vertex Buffer Object) is a buffer on the GPU that holds vertex data.
     glGenBuffers(1, &VBO);
+
+    // EBO (Element Buffer Object) is a buffer that holds indices for indexed drawing, allowing us to reuse vertices.
     glGenBuffers(1, &EBO);
 
+    // activates the VAO
     glBindVertexArray(VAO);
 
+    // binds the VBO and uploads the vertex data
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
+    // binds the EBO and uploads the index data
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
+    // configure vertex attributes
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
+    // The second attribute is the texture coordinate
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
+    // create an OpenGL texture to hold the framebuffer's pixel data
     glGenTextures(1, &textureID);
     glBindTexture(GL_TEXTURE_2D, textureID);
     
+    // set texture parameters for nearest-neighbor sampling (no interpolation)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     
+    // allocate texture storage without initializing it
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, WINDOW_WIDTH, WINDOW_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
+    // create the framebuffer that will hold our rendered pixel data before we upload it to the GPU texture
     fb = new Framebuffer(WINDOW_WIDTH, WINDOW_HEIGHT);
 }
 
