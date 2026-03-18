@@ -186,11 +186,14 @@ void RunRenderLoop(GLFWwindow* window,
             }
         }
 
-        // draw wireframe edges on top
+        // draw wireframe edges on top (skip back-facing triangles)
         for (size_t i = 0; i < indices.size(); i += 3) {
             Vec2 a = screenVerts[indices[i]];
             Vec2 b = screenVerts[indices[i+1]];
             Vec2 c = screenVerts[indices[i+2]];
+            // signed area: positive = front-facing, negative = back-facing
+            float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+            if (area <= 0.0f) continue;
             DrawLine(*fb, a, b, 0xFFFFFFFF);
             DrawLine(*fb, b, c, 0xFFFFFFFF);
             DrawLine(*fb, c, a, 0xFFFFFFFF);
@@ -227,7 +230,7 @@ void Cleanup(GLFWwindow* window) {
 
 int main() {
     ObjLoader loader;
-    Mesh cube = loader.load("assets/models/cylinder.obj");
+    Mesh cube = loader.load("assets/models/monkey.obj");
 
     std::cout << "Vertices loaded: " << cube.vertices.size() << "\n";
     for (const Vec3 &v : cube.vertices)

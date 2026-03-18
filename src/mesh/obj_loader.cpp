@@ -26,10 +26,13 @@ Mesh ObjLoader::load(const std::string& filepath) {
             mesh.vertices.push_back(vertex);
         }
         else if (keyword == "f") {
-            // parse a face: "f i0 i1 i2 ..." (OBJ indices are 1-based)
+            // parse a face: supports "f v", "f v/vt", "f v//vn", "f v/vt/vn"
+            // OBJ indices are 1-based, we only need the vertex index (before first '/')
             std::vector<unsigned int> faceIndices;
-            unsigned int index;
-            while (ss >> index) {
+            std::string token;
+            while (ss >> token) {
+                // take the part before the first '/'
+                unsigned int index = (unsigned int)std::stoi(token.substr(0, token.find('/')));
                 faceIndices.push_back(index - 1); // convert to 0-based
             }
 
