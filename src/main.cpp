@@ -23,6 +23,7 @@ const char* WINDOW_TITLE = "Software Rasterizer";
 GLuint shaderProgram, VAO, VBO, EBO, textureID;
 
 Framebuffer* fb = nullptr;
+FpsTracker tracker;
 
 const char *vertexShaderSource = "#version 330 core\n"
     "layout (location = 0) in vec2 aPos;\n"
@@ -155,6 +156,7 @@ void RunRenderLoop(GLFWwindow* window,
                    const std::vector<float>& screenDepths,
                    const std::vector<unsigned int>& indices) {
 
+    
     std::srand((unsigned int)std::time(nullptr));
     const int faceCount = 6;
     uint32_t faceColors[faceCount];
