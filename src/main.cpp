@@ -11,6 +11,7 @@
 #include "math/mat4.h"
 #include "mesh/obj_loader.h"
 #include "framebuffer.h"
+#include "FpsTracker.h"
 #include "rasterizer.h"
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
@@ -22,6 +23,7 @@ const char* WINDOW_TITLE = "Software Rasterizer";
 GLuint shaderProgram, VAO, VBO, EBO, textureID;
 
 Framebuffer* fb = nullptr;
+FpsTracker tracker;
 
 const char *vertexShaderSource = "#version 330 core\n"
     "layout (location = 0) in vec2 aPos;\n"
@@ -154,6 +156,7 @@ void RunRenderLoop(GLFWwindow* window,
                    const std::vector<float>& screenDepths,
                    const std::vector<unsigned int>& indices) {
 
+    
     std::srand((unsigned int)std::time(nullptr));
     const int faceCount = 6;
     uint32_t faceColors[faceCount];
@@ -165,6 +168,15 @@ void RunRenderLoop(GLFWwindow* window,
     }
 
     while (!glfwWindowShouldClose(window)) {
+
+        tracker.Tick();
+        float deltaTime = tracker.GetDeltaTime();
+
+        if (tracker.HasFpsUpdated()) {
+            std::string title = "Software Rasterizer - FPS: " + std::to_string(tracker.GetFPS());
+            glfwSetWindowTitle(window, title.c_str()); 
+        }
+
         processInput(window);
 
         fb->clear(0x000000FF);
