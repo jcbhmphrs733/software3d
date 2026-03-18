@@ -149,15 +149,17 @@ void SetupResources() {
     fb = new Framebuffer(WINDOW_WIDTH, WINDOW_HEIGHT);
 }
 
+
+
 void RunRenderLoop(GLFWwindow* window,
                    const std::vector<Vec2>& screenVerts,
                    const std::vector<float>& screenDepths,
                    const std::vector<unsigned int>& indices) {
 
     std::srand((unsigned int)std::time(nullptr));
-    const int faceCount = 6;
-    uint32_t faceColors[faceCount];
-    for (int i = 0; i < faceCount; i++) {
+    const int rand_colors_count = 6;
+    uint32_t faceColors[rand_colors_count];
+    for (int i = 0; i < rand_colors_count; i++) {
         unsigned char r = (unsigned char)(std::rand() % 256);
         unsigned char g = (unsigned char)(std::rand() % 256);
         unsigned char b = (unsigned char)(std::rand() % 256);
@@ -167,7 +169,9 @@ void RunRenderLoop(GLFWwindow* window,
     while (!glfwWindowShouldClose(window)) {
         processInput(window);
 
+        // clear the framebuffer's color and depth buffers at the start of each frame
         fb->clear(0x000000FF);
+        // every frame resets each pixel's depth to the far plane, so we can correctly render new geometry on top
         fb->clearDepth();
 
         // rasterize every triangle with depth testing
@@ -175,7 +179,7 @@ void RunRenderLoop(GLFWwindow* window,
             unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
             Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
             float za = screenDepths[i0], zb = screenDepths[i1], zc = screenDepths[i2];
-            uint32_t color = faceColors[(i / 6) % faceCount];
+            uint32_t color = faceColors[(i / 6) % rand_colors_count];
             DrawTriangle(*fb, a, b, c, za, zb, zc, color);
         }
 
@@ -189,7 +193,9 @@ void RunRenderLoop(GLFWwindow* window,
             DrawLine(*fb, c, a, 0x000000FF);
         }
 
+        // upload the framebuffer's pixel data to the GPU texture so it can be drawn on the full-screen quad
         glBindTexture(GL_TEXTURE_2D, textureID);
+        // glTexSubImage2D updates a portion of the texture with new pixel data. Here we update the entire texture with the contents of our framebuffer.
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, fb->getPixels());
 
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
