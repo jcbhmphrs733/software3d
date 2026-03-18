@@ -4,6 +4,7 @@
 #include "math/vec3.h"
 #include "mesh/obj_loader.h"
 #include "framebuffer.h"
+#include "FpsTracker.h"
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow *window);
@@ -120,8 +121,18 @@ void RunRenderLoop(GLFWwindow* window) {
     uint32_t green = 0x00FF00FF;
     int centerX = WINDOW_WIDTH / 2;
     int centerY = WINDOW_HEIGHT / 2;
+    FpsTracker tracker;
 
     while (!glfwWindowShouldClose(window)) {
+
+        tracker.Tick();
+        float deltaTime = tracker.GetDeltaTime();
+
+        if (tracker.HasFpsUpdated()) {
+            std::string title = "Software Rasterizer - FPS: " + std::to_string(tracker.GetFPS());
+            glfwSetWindowTitle(window, title.c_str()); 
+        }
+
         processInput(window);
 
         fb->clear(0x000000FF);
@@ -175,7 +186,6 @@ int main() {
     if (!window) {
         return -1;
     }
-    
     SetupResources(); 
     RunRenderLoop(window);
     Cleanup(window);
