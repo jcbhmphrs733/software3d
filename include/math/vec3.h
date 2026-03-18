@@ -14,5 +14,9 @@ struct Vec3 {
 
     Vec3 operator+(const Vec3& other) const; // vector addition
     Vec3 operator-(const Vec3& other) const; // vector subtraction
-    
+    Vec3 operator*(float scalar)       const; // scalar multiplication
+
+    float dot(const Vec3& other)   const; // dot product
+    Vec3  cross(const Vec3& other) const; // cross product
+    Vec3  normalized()             const; // unit vector in same direction
 };
