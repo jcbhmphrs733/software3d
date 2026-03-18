@@ -32,7 +32,7 @@ public:
             currentFPS = static_cast<int>(static_cast<float>(frameCount) / fpsTimer);
             fpsTimer = 0.0f;
             frameCount = 0;
-            fpsUpdatedThisFrame = true; // Signal to main.cpp that a new FPS is ready
+            fpsUpdatedThisFrame = true;
         }
     }
 
