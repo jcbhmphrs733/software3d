@@ -22,6 +22,7 @@ const char* WINDOW_TITLE = "Software Rasterizer";
 GLuint shaderProgram, VAO, VBO, EBO, textureID;
 
 Framebuffer* fb = nullptr;
+bool wireframeOnly = false;
 
 const char *vertexShaderSource = "#version 330 core\n"
     "layout (location = 0) in vec2 aPos;\n"
@@ -157,9 +158,9 @@ void RunRenderLoop(GLFWwindow* window,
                    const std::vector<unsigned int>& indices) {
 
     std::srand((unsigned int)std::time(nullptr));
-    const int rand_colors_count = 6;
-    uint32_t faceColors[rand_colors_count];
-    for (int i = 0; i < rand_colors_count; i++) {
+    size_t triangleCount = indices.size() / 3;
+    std::vector<uint32_t> faceColors(triangleCount);
+    for (size_t i = 0; i < triangleCount; i++) {
         unsigned char r = (unsigned char)(std::rand() % 256);
         unsigned char g = (unsigned char)(std::rand() % 256);
         unsigned char b = (unsigned char)(std::rand() % 256);
@@ -175,12 +176,14 @@ void RunRenderLoop(GLFWwindow* window,
         fb->clearDepth();
 
         // rasterize every triangle with depth testing
-        for (size_t i = 0; i < indices.size(); i += 3) {
-            unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
-            Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
-            float za = screenDepths[i0], zb = screenDepths[i1], zc = screenDepths[i2];
-            uint32_t color = faceColors[(i / 6) % rand_colors_count];
-            DrawTriangle(*fb, a, b, c, za, zb, zc, color);
+        if (!wireframeOnly) {
+            for (size_t i = 0; i < indices.size(); i += 3) {
+                unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+                Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
+                float za = screenDepths[i0], zb = screenDepths[i1], zc = screenDepths[i2];
+                uint32_t color = faceColors[i / 3];
+                DrawTriangle(*fb, a, b, c, za, zb, zc, color);
+            }
         }
 
         // draw wireframe edges on top
@@ -188,9 +191,9 @@ void RunRenderLoop(GLFWwindow* window,
             Vec2 a = screenVerts[indices[i]];
             Vec2 b = screenVerts[indices[i+1]];
             Vec2 c = screenVerts[indices[i+2]];
-            DrawLine(*fb, a, b, 0x000000FF);
-            DrawLine(*fb, b, c, 0x000000FF);
-            DrawLine(*fb, c, a, 0x000000FF);
+            DrawLine(*fb, a, b, 0xFFFFFFFF);
+            DrawLine(*fb, b, c, 0xFFFFFFFF);
+            DrawLine(*fb, c, a, 0xFFFFFFFF);
         }
 
         // upload the framebuffer's pixel data to the GPU texture so it can be drawn on the full-screen quad
@@ -224,7 +227,7 @@ void Cleanup(GLFWwindow* window) {
 
 int main() {
     ObjLoader loader;
-    Mesh cube = loader.load("assets/models/sphere.obj");
+    Mesh cube = loader.load("assets/models/cylinder.obj");
 
     std::cout << "Vertices loaded: " << cube.vertices.size() << "\n";
     for (const Vec3 &v : cube.vertices)
@@ -290,6 +293,12 @@ void processInput(GLFWwindow *window)
 {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
+
+    static bool fWasPressed = false;
+    bool fIsPressed = glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS;
+    if (fIsPressed && !fWasPressed)
+        wireframeOnly = !wireframeOnly;
+    fWasPressed = fIsPressed;
 }
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height)
