@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include "math/vec2.h"
 #include "math/vec3.h"
 #include "math/vec4.h"
@@ -13,12 +14,20 @@
 #include "framebuffer.h"
 #include "FpsTracker.h"
 #include "rasterizer.h"
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+#include "nfd.h"
+#include "nfd_glfw3.h"
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void processInput(GLFWwindow *window);
 
-const int WINDOW_WIDTH = 800;
-const int WINDOW_HEIGHT = 600;
+const int VIEWPORT_WIDTH = 800;
+const int VIEWPORT_HEIGHT = 600;
+const int PANEL_WIDTH = 200;
+const int WINDOW_WIDTH = VIEWPORT_WIDTH + PANEL_WIDTH;
+const int WINDOW_HEIGHT = VIEWPORT_HEIGHT;
 const char* WINDOW_TITLE = "Software Rasterizer";
 GLuint shaderProgram, VAO, VBO, EBO, textureID;
 
@@ -73,6 +82,15 @@ GLFWwindow *InitializeWindow()
         return nullptr;
     }
 
+    // Initialize ImGui
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 330");
+    ImGui::StyleColorsDark();
+
+    NFD_Init();
+
     return window;
 }
 
@@ -97,12 +115,13 @@ void SetupResources() {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // a full-screen quad (two triangles) with interleaved position and UV attributes
+    // Quad covering only the left 4/5 of the window (NDC x: -1 to 0.6), leaving room for ImGui panel
+    float viewportRight = 1.0f - 2.0f * ((float)PANEL_WIDTH / (float)WINDOW_WIDTH);
     float vertices[] = {
-         1.0f,  1.0f,   1.0f, 1.0f, 
-         1.0f, -1.0f,   1.0f, 0.0f, 
-        -1.0f, -1.0f,   0.0f, 0.0f, 
-        -1.0f,  1.0f,   0.0f, 1.0f  
+         viewportRight,  1.0f,   1.0f, 1.0f,
+         viewportRight, -1.0f,   1.0f, 0.0f,
+        -1.0f,          -1.0f,   0.0f, 0.0f,
+        -1.0f,           1.0f,   0.0f, 1.0f
     };
     unsigned int indices[] = {
         0, 1, 3, 
@@ -146,29 +165,35 @@ void SetupResources() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     
     // allocate texture storage without initializing it
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, WINDOW_WIDTH, WINDOW_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
     // create the framebuffer that will hold our rendered pixel data before we upload it to the GPU texture
-    fb = new Framebuffer(WINDOW_WIDTH, WINDOW_HEIGHT);
+    fb = new Framebuffer(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
 }
 
 
 
 void RunRenderLoop(GLFWwindow* window,
-                   const std::vector<Vec2>& screenVerts,
-                   const std::vector<float>& screenDepths,
-                   const std::vector<unsigned int>& indices) {
+                   std::vector<Vec2> screenVerts,
+                   std::vector<float> screenDepths,
+                   std::vector<unsigned int> indices) {
 
-    
+    auto buildFaceColors = [](size_t triCount) {
+        std::vector<uint32_t> colors(triCount);
+        for (size_t i = 0; i < triCount; i++) {
+            unsigned char r = (unsigned char)(std::rand() % 256);
+            unsigned char g = (unsigned char)(std::rand() % 256);
+            unsigned char b = (unsigned char)(std::rand() % 256);
+            colors[i] = (r << 24) | (g << 16) | (b << 8) | 0xFF;
+        }
+        return colors;
+    };
+
     std::srand((unsigned int)std::time(nullptr));
-    size_t triangleCount = indices.size() / 3;
-    std::vector<uint32_t> faceColors(triangleCount);
-    for (size_t i = 0; i < triangleCount; i++) {
-        unsigned char r = (unsigned char)(std::rand() % 256);
-        unsigned char g = (unsigned char)(std::rand() % 256);
-        unsigned char b = (unsigned char)(std::rand() % 256);
-        faceColors[i] = (r << 24) | (g << 16) | (b << 8) | 0xFF;
-    }
+    std::vector<uint32_t> faceColors = buildFaceColors(indices.size() / 3);
+
+    std::string loadedFilePath;
+    ObjLoader loader;
 
     while (!glfwWindowShouldClose(window)) {
 
@@ -176,8 +201,7 @@ void RunRenderLoop(GLFWwindow* window,
         float deltaTime = tracker.GetDeltaTime();
 
         if (tracker.HasFpsUpdated()) {
-            std::string title = "Software Rasterizer - FPS: " + std::to_string(tracker.GetFPS());
-            glfwSetWindowTitle(window, title.c_str()); 
+            glfwSetWindowTitle(window, WINDOW_TITLE);
         }
 
         processInput(window);
@@ -211,17 +235,87 @@ void RunRenderLoop(GLFWwindow* window,
             DrawLine(*fb, c, a, 0xFFFFFFFF);
         }
 
-        // upload the framebuffer's pixel data to the GPU texture so it can be drawn on the full-screen quad
+        // upload the framebuffer's pixel data to the GPU texture so it can be drawn on the quad
         glBindTexture(GL_TEXTURE_2D, textureID);
-        // glTexSubImage2D updates a portion of the texture with new pixel data. Here we update the entire texture with the contents of our framebuffer.
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, fb->getPixels());
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, fb->getPixels());
 
-        glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+        glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
         glUseProgram(shaderProgram);
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
+        // Render ImGui panel
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        ImGui::SetNextWindowPos(ImVec2((float)VIEWPORT_WIDTH, 0.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2((float)PANEL_WIDTH, (float)WINDOW_HEIGHT), ImGuiCond_Always);
+        ImGui::Begin("Scene", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+
+        ImGui::Text("Performance");
+        ImGui::Separator();
+        ImGui::Text("FPS:        %d", tracker.GetFPS());
+        ImGui::Text("Frame time: %.2f ms", tracker.GetDeltaTime() * 1000.0f);
+        ImGui::Text("Updated:    every 1 sec");
+
+        ImGui::Spacing();
+        ImGui::Text("OBJ Loader");
+        ImGui::Separator();
+        if (loadedFilePath.empty())
+            ImGui::Text("No file loaded");
+        else
+            ImGui::TextWrapped("%s", std::filesystem::path(loadedFilePath).filename().string().c_str());
+
+        ImGui::Spacing();
+        if (ImGui::Button("Open OBJ...", ImVec2(-1, 0))) {
+            nfdu8char_t* outPath = nullptr;
+            nfdfilteritem_t filters[] = { {"OBJ Files", "obj"} };
+            nfdwindowhandle_t parentHandle;
+            NFD_GetNativeWindowFromGLFWWindow(window, &parentHandle);
+            nfdopendialogu8args_t args = {};
+            args.filterList = filters;
+            args.filterCount = 1;
+            args.parentWindow = parentHandle;
+            if (NFD_OpenDialogU8_With(&outPath, &args) == NFD_OKAY) {
+                loadedFilePath = outPath;
+                NFD_FreePathU8(outPath);
+
+                Mesh mesh = loader.load(loadedFilePath);
+                Mat4 model = Mat4::identity();
+                Mat4 view = Mat4::lookAt(
+                    Vec3(0.0f, 0.0f, 3.0f),
+                    Vec3(0.0f, 0.0f, 0.0f),
+                    Vec3(0.0f, 1.0f, 0.0f)
+                );
+                Mat4 projection = Mat4::perspective(
+                    3.14159f / 4.0f,
+                    (float)VIEWPORT_WIDTH / (float)VIEWPORT_HEIGHT,
+                    0.1f, 100.0f
+                );
+                Mat4 MVP = projection * view * model;
+
+                screenVerts.clear();
+                screenDepths.clear();
+                indices = mesh.indices;
+                for (const Vec3& v : mesh.vertices) {
+                    Vec4 clip = MVP * Vec4(v.x, v.y, v.z, 1.0f);
+                    Vec3 ndc  = Vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
+                    screenVerts.push_back(Vec2(
+                        (ndc.x + 1.0f) / 2.0f * VIEWPORT_WIDTH,
+                        (1.0f - ndc.y) / 2.0f * VIEWPORT_HEIGHT
+                    ));
+                    screenDepths.push_back((ndc.z + 1.0f) / 2.0f);
+                }
+                faceColors = buildFaceColors(indices.size() / 3);
+            }
+        }
+        ImGui::End();
+
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -229,6 +323,12 @@ void RunRenderLoop(GLFWwindow* window,
 }
 
 void Cleanup(GLFWwindow* window) {
+    NFD_Quit();
+
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
     glDeleteBuffers(1, &EBO);
@@ -262,8 +362,8 @@ int main() {
                         Vec3(0.0f, 1.0f, 0.0f)    // up: world up is +Y
                       );
     Mat4 projection = Mat4::perspective(
-                        3.14159f / 4.0f,                          // fovY: 45 degrees in radians
-                        (float)WINDOW_WIDTH / (float)WINDOW_HEIGHT, // aspect ratio
+                        3.14159f / 4.0f,                            // fovY: 45 degrees in radians
+                        (float)VIEWPORT_WIDTH / (float)VIEWPORT_HEIGHT, // aspect ratio
                         0.1f,                                      // near plane
                         100.0f                                     // far plane
                       );
@@ -277,8 +377,8 @@ int main() {
         Vec3 ndc  = Vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
 
         Vec2 pixel = Vec2(
-            (ndc.x + 1.0f) / 2.0f * WINDOW_WIDTH,
-            (1.0f - ndc.y) / 2.0f * WINDOW_HEIGHT
+            (ndc.x + 1.0f) / 2.0f * VIEWPORT_WIDTH,
+            (1.0f - ndc.y) / 2.0f * VIEWPORT_HEIGHT
         );
         screenVerts.push_back(pixel);
         screenDepths.push_back((ndc.z + 1.0f) / 2.0f); // remap [-1,1] -> [0,1]
