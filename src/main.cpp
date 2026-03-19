@@ -20,8 +20,10 @@
 #include "nfd.h"
 #include "nfd_glfw3.h"
 
+// Forward declarations
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow* window, float& rotX, float& rotY);
+void UpdateQuadVertices(int windowWidth);  // must be declared before framebuffer_size_callback uses it
 
 const int VIEWPORT_WIDTH  = 800;
 const int VIEWPORT_HEIGHT = 600;
@@ -30,8 +32,11 @@ const int WINDOW_WIDTH    = VIEWPORT_WIDTH + PANEL_WIDTH;
 const int WINDOW_HEIGHT   = VIEWPORT_HEIGHT;
 const char* WINDOW_TITLE  = "Software Rasterizer";
 
+int currentWindowWidth  = WINDOW_WIDTH;
+int currentWindowHeight = WINDOW_HEIGHT;
+
 GLuint shaderProgram, VAO, VBO, EBO, textureID;
-Framebuffer* fb   = nullptr;
+Framebuffer* fb    = nullptr;
 bool wireframeOnly = false;
 FpsTracker tracker;
 
@@ -54,6 +59,7 @@ const char* fragmentShaderSource = "#version 330 core\n"
     "   FragColor = texture(ourTexture, TexCoord);\n"
     "}\n\0";
 
+ 
 
 GLFWwindow* InitializeWindow()
 {
@@ -89,6 +95,7 @@ GLFWwindow* InitializeWindow()
     return window;
 }
 
+ 
 
 void SetupResources()
 {
@@ -108,8 +115,6 @@ void SetupResources()
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // Quad covering only the viewport portion of the window (left side),
-    // leaving the right PANEL_WIDTH pixels for ImGui.
     float viewportRight = 1.0f - 2.0f * ((float)PANEL_WIDTH / (float)WINDOW_WIDTH);
     float vertices[] = {
          viewportRight,  1.0f,   1.0f, 1.0f,
@@ -126,7 +131,8 @@ void SetupResources()
     glBindVertexArray(VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    // GL_DYNAMIC_DRAW — tells the GPU this buffer will be updated frequently (on every resize)
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_DYNAMIC_DRAW);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
@@ -146,6 +152,22 @@ void SetupResources()
     fb = new Framebuffer(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
 }
 
+ 
+
+void UpdateQuadVertices(int windowWidth)
+{
+    float viewportRight = 1.0f - 2.0f * ((float)PANEL_WIDTH / (float)windowWidth);
+    float vertices[] = {
+         viewportRight,  1.0f,   1.0f, 1.0f,
+         viewportRight, -1.0f,   1.0f, 0.0f,
+        -1.0f,          -1.0f,   0.0f, 0.0f,
+        -1.0f,           1.0f,   0.0f, 1.0f
+    };
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+}
+
+ 
 
 void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const Mat4& projection)
 {
@@ -153,7 +175,6 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
 
     std::srand((unsigned int)std::time(nullptr));
 
-    // Helper lambda to generate random per-face colors
     auto buildFaceColors = [](size_t triCount) {
         std::vector<uint32_t> colors(triCount);
         for (size_t i = 0; i < triCount; i++) {
@@ -165,13 +186,11 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
         return colors;
     };
 
-    // Working copies — updated when a new OBJ is loaded
     std::vector<unsigned int> indices    = mesh.indices;
     std::vector<uint32_t>     faceColors = buildFaceColors(indices.size() / 3);
     std::vector<Vec2>         screenVerts(mesh.vertices.size());
     std::vector<float>        screenDepths(mesh.vertices.size());
 
-    // Keep a copy of the original mesh so rotation keeps working on the base geometry
     Mesh currentMesh = mesh;
 
     std::string loadedFilePath;
@@ -188,7 +207,6 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
         fb->clear(0x000000FF);
         fb->clearDepth();
 
-        // Rebuild MVP each frame so rotation is applied to the current mesh
         Mat4 model = rotateY(rotY) * rotateX(rotX);
         Mat4 MVP   = projection * view * model;
 
@@ -206,7 +224,6 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
             screenDepths[i] = (ndc.z + 1.0f) / 2.0f;
         }
 
-        // Filled triangles
         if (!wireframeOnly) {
             for (size_t i = 0; i < indices.size(); i += 3) {
                 unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
@@ -217,7 +234,6 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
             }
         }
 
-        // Wireframe edges (front-facing only)
         for (size_t i = 0; i < indices.size(); i += 3) {
             Vec2 a = screenVerts[indices[i]];
             Vec2 b = screenVerts[indices[i+1]];
@@ -229,7 +245,6 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
             DrawLine(*fb, c, a, 0xFFFFFFFF);
         }
 
-        // Upload software framebuffer to GPU texture
         glBindTexture(GL_TEXTURE_2D, textureID);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT,
                         GL_RGBA, GL_UNSIGNED_BYTE, fb->getPixels());
@@ -240,19 +255,19 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
-        // ImGui panel
+        // ImGui panel — pinned to right edge, tracks currentWindowWidth/Height
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::SetNextWindowPos(ImVec2((float)VIEWPORT_WIDTH, 0.0f), ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2((float)PANEL_WIDTH, (float)WINDOW_HEIGHT), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2((float)(currentWindowWidth - PANEL_WIDTH), 0.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2((float)PANEL_WIDTH, (float)currentWindowHeight), ImGuiCond_Always);
         ImGui::Begin("Scene", nullptr,
             ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
 
         ImGui::Text("Performance");
         ImGui::Separator();
-        ImGui::Text("FPS:        %d",   tracker.GetFPS());
+        ImGui::Text("FPS:        %d",      tracker.GetFPS());
         ImGui::Text("Frame time: %.2f ms", tracker.GetDeltaTime() * 1000.0f);
         ImGui::Text("Updated:    every 1 sec");
 
@@ -280,12 +295,12 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
                 loadedFilePath = outPath;
                 NFD_FreePathU8(outPath);
 
-                currentMesh = loader.load(loadedFilePath);
-                indices     = currentMesh.indices;
-                faceColors  = buildFaceColors(indices.size() / 3);
+                currentMesh  = loader.load(loadedFilePath);
+                indices      = currentMesh.indices;
+                faceColors   = buildFaceColors(indices.size() / 3);
                 screenVerts.resize(currentMesh.vertices.size());
                 screenDepths.resize(currentMesh.vertices.size());
-                rotX = rotY = 0.0f; // reset rotation for new model
+                rotX = rotY  = 0.0f;
             }
         }
 
@@ -298,6 +313,7 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
     }
 }
 
+ 
 
 void Cleanup(GLFWwindow* window)
 {
@@ -318,6 +334,7 @@ void Cleanup(GLFWwindow* window)
     glfwTerminate();
 }
 
+ 
 
 int main()
 {
@@ -344,6 +361,7 @@ int main()
     return 0;
 }
 
+ 
 
 void processInput(GLFWwindow* window, float& rotX, float& rotY)
 {
@@ -367,7 +385,6 @@ void processInput(GLFWwindow* window, float& rotX, float& rotY)
         rotX += speed * 0.1f;
     }
 
-    // Toggle wireframe with F key (edge-triggered, not held)
     static bool fWasPressed = false;
     bool fIsPressed = glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS;
     if (fIsPressed && !fWasPressed)
@@ -375,7 +392,11 @@ void processInput(GLFWwindow* window, float& rotX, float& rotY)
     fWasPressed = fIsPressed;
 }
 
+
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
+    currentWindowWidth  = width;
+    currentWindowHeight = height;
     glViewport(0, 0, width, height);
+    UpdateQuadVertices(width);
 }
