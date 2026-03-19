@@ -1,46 +1,37 @@
 cmake_minimum_required(VERSION 3.16)
 project(software3d)
 
-# Require C++17
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find GLFW (installed via MSYS2)
 find_package(glfw3 3.3 REQUIRED)
-
-# Find OpenGL (for Windows and Mac)
 find_package(OpenGL REQUIRED)
 
-# Automatically collect all .cpp files under src/math/ and src/mesh/
-file(GLOB MATH_SOURCES src/math/*.cpp)
-file(GLOB MESH_SOURCES src/mesh/*.cpp)
+file(GLOB MATH_SOURCES  src/math/*.cpp)
+file(GLOB MESH_SOURCES  src/mesh/*.cpp)
 file(GLOB IMGUI_SOURCES src/ui/*.cpp)
 
-# Define the executable and all source files
 add_executable(software3d
-src/main.cpp
-src/glad.c
-src/framebuffer.cpp
+    src/main.cpp
+    src/glad.c
+    src/framebuffer.cpp
     src/rasterizer.cpp
     ${MATH_SOURCES}
     ${MESH_SOURCES}
     ${IMGUI_SOURCES}
 )
 
-# Add include directories so #include "glad/glad.h", "math/vec3.h", etc. all resolve
-target_include_directories(software3d PRIVATE include/ui)
-target_include_directories(software3d PRIVATE include/nfd)
 target_include_directories(software3d PRIVATE
     include
+    include/ui
+    include/nfd
 )
 
-# NFD: platform-specific source and link libraries
 if(WIN32)
     target_sources(software3d PRIVATE src/nfd/nfd_win.cpp)
     target_link_libraries(software3d PRIVATE comdlg32 ole32)
 elseif(APPLE)
     target_sources(software3d PRIVATE src/nfd/nfd_cocoa.m)
-    # Force the older allowedFileTypes API so UniformTypeIdentifiers (macOS 11+ only) is not required
     target_compile_definitions(software3d PRIVATE NFD_MACOS_ALLOWEDCONTENTTYPES=0)
     target_link_libraries(software3d PRIVATE "-framework AppKit")
 elseif(UNIX)
@@ -51,13 +42,6 @@ elseif(UNIX)
     target_link_libraries(software3d PRIVATE ${GTK3_LIBRARIES})
 endif()
 
-# Link against GLFW and Windows OpenGL and Mac
-    # if(WIN32)
-    #     target_link_libraries(software3d PRIVATE glfw opengl32)
-    # elseif(APPLE)
-    #     target_link_libraries(software3d PRIVATE glfw "-framework OpenGL")
-    # endif()
-
 target_link_libraries(software3d PRIVATE glfw OpenGL::GL)
 
 add_custom_command(TARGET software3d POST_BUILD
@@ -65,3 +49,4 @@ add_custom_command(TARGET software3d POST_BUILD
     ${CMAKE_SOURCE_DIR}/assets
     ${CMAKE_CURRENT_BINARY_DIR}/assets
 )
+
