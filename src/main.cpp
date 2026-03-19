@@ -45,7 +45,6 @@ const char *fragmentShaderSource = "#version 330 core\n"
     "}\n\0";
 
 
-// Ask GLFW to create an OS window and hook OpenGL into it. Returning a pointer to the window, or nullptr on failure.
 GLFWwindow *InitializeWindow()
 {
     if (!glfwInit())
@@ -63,7 +62,6 @@ GLFWwindow *InitializeWindow()
 
     glfwMakeContextCurrent(window);
 
-    //registering a function that GLFW uses to change the viewport when the window is resized.
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
@@ -77,7 +75,6 @@ GLFWwindow *InitializeWindow()
 
 void SetupResources() {
 
-    // GLuint are unsigned integers that act as an ID for the shader living on the GPU. We can use these IDs to reference the shader when we want to use it.
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
     glCompileShader(vertexShader);
@@ -86,17 +83,14 @@ void SetupResources() {
     glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
     glCompileShader(fragmentShader);
 
-    // After compiling the shaders, we need to link them into a shader program that can be used for rendering. The shader program is also identified by an GLuint ID.
     shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
     glAttachShader(shaderProgram, fragmentShader);
     glLinkProgram(shaderProgram);
 
-    // Once the shaders are linked into a program, we can delete the individual shader objects as they are no longer needed.
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // a full-screen quad (two triangles) with interleaved position and UV attributes
     float vertices[] = {
          1.0f,  1.0f,   1.0f, 1.0f, 
          1.0f, -1.0f,   1.0f, 0.0f, 
@@ -108,51 +102,38 @@ void SetupResources() {
         1, 2, 3  
     };
 
-    // VAO (Vertex Array Object) stores the configuration of vertex attributes and which VBOs to use. 
     glGenVertexArrays(1, &VAO);
 
-    // VBO (Vertex Buffer Object) is a buffer on the GPU that holds vertex data.
     glGenBuffers(1, &VBO);
 
-    // EBO (Element Buffer Object) is a buffer that holds indices for indexed drawing, allowing us to reuse vertices.
     glGenBuffers(1, &EBO);
 
-    // activates the VAO
     glBindVertexArray(VAO);
 
-    // binds the VBO and uploads the vertex data
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-    // binds the EBO and uploads the index data
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
-    // configure vertex attributes
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    // The second attribute is the texture coordinate
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
-    // create an OpenGL texture to hold the framebuffer's pixel data
     glGenTextures(1, &textureID);
     glBindTexture(GL_TEXTURE_2D, textureID);
-    
-    // set texture parameters for nearest-neighbor sampling (no interpolation)
+
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     
-    // allocate texture storage without initializing it
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, WINDOW_WIDTH, WINDOW_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-    // create the framebuffer that will hold our rendered pixel data before we upload it to the GPU texture
     fb = new Framebuffer(WINDOW_WIDTH, WINDOW_HEIGHT);
 }
 
 void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const Mat4& projection) {
-    // 1. Initialize random colors for each face of the mesh
     float rotX = 0.0f, rotY = 0.0f;
     std::srand((unsigned int)std::time(nullptr));
     const int faceCount = mesh.indices.size() / 3; 
@@ -164,8 +145,6 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
         faceColors[i] = (r << 24) | (g << 16) | (b << 8) | 0xFF;
     }
 
-    // 2. Pre-allocate storage for projected screen coordinates
-    // This prevents thousands of allocations per second
     std::vector<Vec2> screenVerts(mesh.vertices.size());
     std::vector<float> screenDepths(mesh.vertices.size());
 
@@ -180,57 +159,39 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
 
        processInput(window, rotX, rotY);
 
-        // 3. Clear the software buffers
         fb->clear(0x000000FF);
         fb->clearDepth();
 
-        // 4. Dynamic Transformation Stage
-        // SRT Order: Scale -> Rotate -> Translate (though translation is identity here)
         Mat4 model = rotateY(rotY) * rotateX(rotX) * scale(1.0f, 1.0f, 1.0f);
         Mat4 MVP = projection * view * model;
 
         for (size_t i = 0; i < mesh.vertices.size(); ++i) {
             const Vec3& v = mesh.vertices[i];
             Vec4 clip = MVP * Vec4(v.x, v.y, v.z, 1.0f);
-            
-            // Perspective Divide: Transform from Clip Space to NDC
+
             Vec3 ndc = Vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
 
-            // Viewport Transform: Map NDC [-1, 1] to Screen Pixels [0, Width/Height]
             screenVerts[i] = Vec2(
                 (ndc.x + 1.0f) / 2.0f * WINDOW_WIDTH,
                 (1.0f - ndc.y) / 2.0f * WINDOW_HEIGHT
             );
-            screenDepths[i] = (ndc.z + 1.0f) / 2.0f; // Remap Depth to [0, 1]
+            screenDepths[i] = (ndc.z + 1.0f) / 2.0f; 
         }
 
-        // 5. Rasterization Stage (Triangles)
         for (size_t i = 0; i < mesh.indices.size(); i += 3) {
             unsigned int i0 = mesh.indices[i];
             unsigned int i1 = mesh.indices[i+1];
             unsigned int i2 = mesh.indices[i+2];
 
-            // Use the pre-calculated screen positions and depths
             DrawTriangle(*fb, 
                          screenVerts[i0], screenVerts[i1], screenVerts[i2], 
                          screenDepths[i0], screenDepths[i1], screenDepths[i2], 
                          faceColors[i / 3]);
         }
 
-        // 6. Optional: Wireframe overlay
-        /*
-        for (size_t i = 0; i < mesh.indices.size(); i += 3) {
-            DrawLine(*fb, screenVerts[mesh.indices[i]], screenVerts[mesh.indices[i+1]], 0xFFFFFFFF);
-            DrawLine(*fb, screenVerts[mesh.indices[i+1]], screenVerts[mesh.indices[i+2]], 0xFFFFFFFF);
-            DrawLine(*fb, screenVerts[mesh.indices[i+2]], screenVerts[mesh.indices[i]], 0xFFFFFFFF);
-        }
-        */
-
-        // 7. Upload the software framebuffer to the GPU texture
         glBindTexture(GL_TEXTURE_2D, textureID);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, fb->getPixels());
 
-        // 8. Render the full-screen quad using OpenGL
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
