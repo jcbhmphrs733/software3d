@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include "math/vec2.h"
 #include "math/vec3.h"
 #include "math/vec4.h"
@@ -13,19 +14,28 @@
 #include "framebuffer.h"
 #include "FpsTracker.h"
 #include "rasterizer.h"
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+#include "nfd.h"
+#include "nfd_glfw3.h"
 
-void framebuffer_size_callback(GLFWwindow *window, int width, int height);
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow* window, float& rotX, float& rotY);
 
-const int WINDOW_WIDTH = 800;
-const int WINDOW_HEIGHT = 600;
-const char* WINDOW_TITLE = "Software Rasterizer";
-GLuint shaderProgram, VAO, VBO, EBO, textureID;
+const int VIEWPORT_WIDTH  = 800;
+const int VIEWPORT_HEIGHT = 600;
+const int PANEL_WIDTH     = 200;
+const int WINDOW_WIDTH    = VIEWPORT_WIDTH + PANEL_WIDTH;
+const int WINDOW_HEIGHT   = VIEWPORT_HEIGHT;
+const char* WINDOW_TITLE  = "Software Rasterizer";
 
-Framebuffer* fb = nullptr;
+GLuint shaderProgram, VAO, VBO, EBO, textureID;
+Framebuffer* fb   = nullptr;
+bool wireframeOnly = false;
 FpsTracker tracker;
 
-const char *vertexShaderSource = "#version 330 core\n"
+const char* vertexShaderSource = "#version 330 core\n"
     "layout (location = 0) in vec2 aPos;\n"
     "layout (location = 1) in vec2 aTexCoord;\n"
     "out vec2 TexCoord;\n"
@@ -35,7 +45,7 @@ const char *vertexShaderSource = "#version 330 core\n"
     "   TexCoord = aTexCoord;\n"
     "}\0";
 
-const char *fragmentShaderSource = "#version 330 core\n"
+const char* fragmentShaderSource = "#version 330 core\n"
     "out vec4 FragColor;\n"
     "in vec2 TexCoord;\n"
     "uniform sampler2D ourTexture;\n"
@@ -45,7 +55,7 @@ const char *fragmentShaderSource = "#version 330 core\n"
     "}\n\0";
 
 
-GLFWwindow *InitializeWindow()
+GLFWwindow* InitializeWindow()
 {
     if (!glfwInit())
         return nullptr;
@@ -61,20 +71,27 @@ GLFWwindow *InitializeWindow()
     }
 
     glfwMakeContextCurrent(window);
-
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
-    {
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cerr << "Failed to initialize GLAD\n";
         return nullptr;
     }
 
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 330");
+    ImGui::StyleColorsDark();
+
+    NFD_Init();
+
     return window;
 }
 
-void SetupResources() {
 
+void SetupResources()
+{
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
     glCompileShader(vertexShader);
@@ -91,21 +108,19 @@ void SetupResources() {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
+    // Quad covering only the viewport portion of the window (left side),
+    // leaving the right PANEL_WIDTH pixels for ImGui.
+    float viewportRight = 1.0f - 2.0f * ((float)PANEL_WIDTH / (float)WINDOW_WIDTH);
     float vertices[] = {
-         1.0f,  1.0f,   1.0f, 1.0f, 
-         1.0f, -1.0f,   1.0f, 0.0f, 
-        -1.0f, -1.0f,   0.0f, 0.0f, 
-        -1.0f,  1.0f,   0.0f, 1.0f  
+         viewportRight,  1.0f,   1.0f, 1.0f,
+         viewportRight, -1.0f,   1.0f, 0.0f,
+        -1.0f,          -1.0f,   0.0f, 0.0f,
+        -1.0f,           1.0f,   0.0f, 1.0f
     };
-    unsigned int indices[] = {
-        0, 1, 3, 
-        1, 2, 3  
-    };
+    unsigned int indices[] = { 0, 1, 3, 1, 2, 3 };
 
     glGenVertexArrays(1, &VAO);
-
     glGenBuffers(1, &VBO);
-
     glGenBuffers(1, &EBO);
 
     glBindVertexArray(VAO);
@@ -124,111 +139,207 @@ void SetupResources() {
 
     glGenTextures(1, &textureID);
     glBindTexture(GL_TEXTURE_2D, textureID);
-
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, WINDOW_WIDTH, WINDOW_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-    fb = new Framebuffer(WINDOW_WIDTH, WINDOW_HEIGHT);
+    fb = new Framebuffer(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
 }
 
-void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const Mat4& projection) {
-    float rotX = 0.0f, rotY = 0.0f;
-    std::srand((unsigned int)std::time(nullptr));
-    const int faceCount = mesh.indices.size() / 3; 
-    std::vector<uint32_t> faceColors(faceCount);
-    for (int i = 0; i < faceCount; i++) {
-        unsigned char r = (unsigned char)(std::rand() % 256);
-        unsigned char g = (unsigned char)(std::rand() % 256);
-        unsigned char b = (unsigned char)(std::rand() % 256);
-        faceColors[i] = (r << 24) | (g << 16) | (b << 8) | 0xFF;
-    }
 
-    std::vector<Vec2> screenVerts(mesh.vertices.size());
-    std::vector<float> screenDepths(mesh.vertices.size());
+void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const Mat4& projection)
+{
+    float rotX = 0.0f, rotY = 0.0f;
+
+    std::srand((unsigned int)std::time(nullptr));
+
+    // Helper lambda to generate random per-face colors
+    auto buildFaceColors = [](size_t triCount) {
+        std::vector<uint32_t> colors(triCount);
+        for (size_t i = 0; i < triCount; i++) {
+            unsigned char r = (unsigned char)(std::rand() % 256);
+            unsigned char g = (unsigned char)(std::rand() % 256);
+            unsigned char b = (unsigned char)(std::rand() % 256);
+            colors[i] = (r << 24) | (g << 16) | (b << 8) | 0xFF;
+        }
+        return colors;
+    };
+
+    // Working copies — updated when a new OBJ is loaded
+    std::vector<unsigned int> indices    = mesh.indices;
+    std::vector<uint32_t>     faceColors = buildFaceColors(indices.size() / 3);
+    std::vector<Vec2>         screenVerts(mesh.vertices.size());
+    std::vector<float>        screenDepths(mesh.vertices.size());
+
+    // Keep a copy of the original mesh so rotation keeps working on the base geometry
+    Mesh currentMesh = mesh;
+
+    std::string loadedFilePath;
+    ObjLoader   loader;
 
     while (!glfwWindowShouldClose(window)) {
         tracker.Tick();
-        float time = (float)glfwGetTime();
 
-        if (tracker.HasFpsUpdated()) {
-            std::string title = "Software Rasterizer - FPS: " + std::to_string(tracker.GetFPS());
-            glfwSetWindowTitle(window, title.c_str()); 
-        }
+        if (tracker.HasFpsUpdated())
+            glfwSetWindowTitle(window, WINDOW_TITLE);
 
-       processInput(window, rotX, rotY);
+        processInput(window, rotX, rotY);
 
         fb->clear(0x000000FF);
         fb->clearDepth();
 
-        Mat4 model = rotateY(rotY) * rotateX(rotX) * scale(1.0f, 1.0f, 1.0f);
-        Mat4 MVP = projection * view * model;
+        // Rebuild MVP each frame so rotation is applied to the current mesh
+        Mat4 model = rotateY(rotY) * rotateX(rotX);
+        Mat4 MVP   = projection * view * model;
 
-        for (size_t i = 0; i < mesh.vertices.size(); ++i) {
-            const Vec3& v = mesh.vertices[i];
+        screenVerts.resize(currentMesh.vertices.size());
+        screenDepths.resize(currentMesh.vertices.size());
+
+        for (size_t i = 0; i < currentMesh.vertices.size(); ++i) {
+            const Vec3& v = currentMesh.vertices[i];
             Vec4 clip = MVP * Vec4(v.x, v.y, v.z, 1.0f);
-
-            Vec3 ndc = Vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
-
-            screenVerts[i] = Vec2(
-                (ndc.x + 1.0f) / 2.0f * WINDOW_WIDTH,
-                (1.0f - ndc.y) / 2.0f * WINDOW_HEIGHT
+            Vec3 ndc  = Vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
+            screenVerts[i]  = Vec2(
+                (ndc.x + 1.0f) / 2.0f * VIEWPORT_WIDTH,
+                (1.0f - ndc.y) / 2.0f * VIEWPORT_HEIGHT
             );
-            screenDepths[i] = (ndc.z + 1.0f) / 2.0f; 
+            screenDepths[i] = (ndc.z + 1.0f) / 2.0f;
         }
 
-        for (size_t i = 0; i < mesh.indices.size(); i += 3) {
-            unsigned int i0 = mesh.indices[i];
-            unsigned int i1 = mesh.indices[i+1];
-            unsigned int i2 = mesh.indices[i+2];
-
-            DrawTriangle(*fb, 
-                         screenVerts[i0], screenVerts[i1], screenVerts[i2], 
-                         screenDepths[i0], screenDepths[i1], screenDepths[i2], 
-                         faceColors[i / 3]);
+        // Filled triangles
+        if (!wireframeOnly) {
+            for (size_t i = 0; i < indices.size(); i += 3) {
+                unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+                DrawTriangle(*fb,
+                    screenVerts[i0],  screenVerts[i1],  screenVerts[i2],
+                    screenDepths[i0], screenDepths[i1], screenDepths[i2],
+                    faceColors[i / 3]);
+            }
         }
 
+        // Wireframe edges (front-facing only)
+        for (size_t i = 0; i < indices.size(); i += 3) {
+            Vec2 a = screenVerts[indices[i]];
+            Vec2 b = screenVerts[indices[i+1]];
+            Vec2 c = screenVerts[indices[i+2]];
+            float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+            if (area <= 0.0f) continue;
+            DrawLine(*fb, a, b, 0xFFFFFFFF);
+            DrawLine(*fb, b, c, 0xFFFFFFFF);
+            DrawLine(*fb, c, a, 0xFFFFFFFF);
+        }
+
+        // Upload software framebuffer to GPU texture
         glBindTexture(GL_TEXTURE_2D, textureID);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, fb->getPixels());
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT,
+                        GL_RGBA, GL_UNSIGNED_BYTE, fb->getPixels());
 
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
-
         glUseProgram(shaderProgram);
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
+        // ImGui panel
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        ImGui::SetNextWindowPos(ImVec2((float)VIEWPORT_WIDTH, 0.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2((float)PANEL_WIDTH, (float)WINDOW_HEIGHT), ImGuiCond_Always);
+        ImGui::Begin("Scene", nullptr,
+            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+
+        ImGui::Text("Performance");
+        ImGui::Separator();
+        ImGui::Text("FPS:        %d",   tracker.GetFPS());
+        ImGui::Text("Frame time: %.2f ms", tracker.GetDeltaTime() * 1000.0f);
+        ImGui::Text("Updated:    every 1 sec");
+
+        ImGui::Spacing();
+        ImGui::Text("OBJ Loader");
+        ImGui::Separator();
+        if (loadedFilePath.empty())
+            ImGui::Text("No file loaded");
+        else
+            ImGui::TextWrapped("%s",
+                std::filesystem::path(loadedFilePath).filename().string().c_str());
+
+        ImGui::Spacing();
+        if (ImGui::Button("Open OBJ...", ImVec2(-1, 0))) {
+            nfdu8char_t* outPath = nullptr;
+            nfdfilteritem_t filters[] = { {"OBJ Files", "obj"} };
+            nfdwindowhandle_t parentHandle;
+            NFD_GetNativeWindowFromGLFWWindow(window, &parentHandle);
+            nfdopendialogu8args_t args = {};
+            args.filterList   = filters;
+            args.filterCount  = 1;
+            args.parentWindow = parentHandle;
+
+            if (NFD_OpenDialogU8_With(&outPath, &args) == NFD_OKAY) {
+                loadedFilePath = outPath;
+                NFD_FreePathU8(outPath);
+
+                currentMesh = loader.load(loadedFilePath);
+                indices     = currentMesh.indices;
+                faceColors  = buildFaceColors(indices.size() / 3);
+                screenVerts.resize(currentMesh.vertices.size());
+                screenDepths.resize(currentMesh.vertices.size());
+                rotX = rotY = 0.0f; // reset rotation for new model
+            }
+        }
+
+        ImGui::End();
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
 }
 
-void Cleanup(GLFWwindow* window) {
+
+void Cleanup(GLFWwindow* window)
+{
+    NFD_Quit();
+
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
     glDeleteBuffers(1, &EBO);
     glDeleteProgram(shaderProgram);
     glDeleteTextures(1, &textureID);
-    
+
     delete fb;
-    
+
     glfwTerminate();
 }
-int main() {
+
+
+int main()
+{
     ObjLoader loader;
-    Mesh cube = loader.load("assets/models/sphere.obj");
+    Mesh mesh = loader.load("assets/models/monkey.obj");
 
-    Mat4 view = Mat4::lookAt(Vec3(0, 0, 5), Vec3(0, 0, 0), Vec3(0, 1, 0));
-    Mat4 projection = Mat4::perspective(3.14159f / 4.0f, (float)800/600, 0.1f, 100.0f);
+    Mat4 view = Mat4::lookAt(
+        Vec3(0.0f, 0.0f, 5.0f),
+        Vec3(0.0f, 0.0f, 0.0f),
+        Vec3(0.0f, 1.0f, 0.0f)
+    );
+    Mat4 projection = Mat4::perspective(
+        3.14159f / 4.0f,
+        (float)VIEWPORT_WIDTH / (float)VIEWPORT_HEIGHT,
+        0.1f, 100.0f
+    );
 
-    GLFWwindow *window = InitializeWindow();
+    GLFWwindow* window = InitializeWindow();
     if (!window) return -1;
-    
+
     SetupResources();
-
-    RunRenderLoop(window, cube, view, projection);
-
+    RunRenderLoop(window, mesh, view, projection);
     Cleanup(window);
     return 0;
 }
@@ -251,16 +362,20 @@ void processInput(GLFWwindow* window, float& rotX, float& rotY)
     if (anyKey)
         lastInputTime = glfwGetTime();
 
-    double idleSeconds = glfwGetTime() - lastInputTime;
-    if (idleSeconds > 5.0) {
+    if (glfwGetTime() - lastInputTime > 5.0) {
         rotY += speed * 0.5f;
         rotX += speed * 0.1f;
     }
+
+    // Toggle wireframe with F key (edge-triggered, not held)
+    static bool fWasPressed = false;
+    bool fIsPressed = glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS;
+    if (fIsPressed && !fWasPressed)
+        wireframeOnly = !wireframeOnly;
+    fWasPressed = fIsPressed;
 }
 
-
-void framebuffer_size_callback(GLFWwindow *window, int width, int height)
+void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
     glViewport(0, 0, width, height);
 }
-
