@@ -1,41 +1,27 @@
 cmake_minimum_required(VERSION 3.16)
 project(software3d)
 
-# Require C++17
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find GLFW (installed via MSYS2)
 find_package(glfw3 3.3 REQUIRED)
-
-# Find OpenGL (for Windows and Mac)
 find_package(OpenGL REQUIRED)
 
-# Automatically collect all .cpp files under src/math/ and src/mesh/
-file(GLOB MATH_SOURCES src/math/*.cpp)
-file(GLOB MESH_SOURCES src/mesh/*.cpp)
-
-# Define the executable and all source files
-add_executable(software3d
+set(SOURCES
     src/main.cpp
     src/glad.c
     src/framebuffer.cpp
     src/rasterizer.cpp
-    ${MATH_SOURCES}
-    ${MESH_SOURCES}
+    src/math/vec2.cpp   
+    src/math/vec3.cpp
+    src/math/vec4.cpp
+    src/math/mat4.cpp
+    src/mesh/obj_loader.cpp
 )
 
-# Add include directories so #include "glad/glad.h", "math/vec3.h", etc. all resolve
-target_include_directories(software3d PRIVATE
-    include
-)
+add_executable(software3d ${SOURCES})
 
-# Link against GLFW and Windows OpenGL and Mac
-    # if(WIN32)
-    #     target_link_libraries(software3d PRIVATE glfw opengl32)
-    # elseif(APPLE)
-    #     target_link_libraries(software3d PRIVATE glfw "-framework OpenGL")
-    # endif()
+target_include_directories(software3d PRIVATE include)
 
 target_link_libraries(software3d PRIVATE glfw OpenGL::GL)
 

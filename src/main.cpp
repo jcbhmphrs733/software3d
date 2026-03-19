@@ -15,7 +15,7 @@
 #include "rasterizer.h"
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
-void processInput(GLFWwindow *window);
+void processInput(GLFWwindow* window, float& rotX, float& rotY);
 
 const int WINDOW_WIDTH = 800;
 const int WINDOW_HEIGHT = 600;
@@ -151,15 +151,12 @@ void SetupResources() {
     fb = new Framebuffer(WINDOW_WIDTH, WINDOW_HEIGHT);
 }
 
-void RunRenderLoop(GLFWwindow* window,
-                   const std::vector<Vec2>& screenVerts,
-                   const std::vector<float>& screenDepths,
-                   const std::vector<unsigned int>& indices) {
-
-    
+void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const Mat4& projection) {
+    // 1. Initialize random colors for each face of the mesh
+    float rotX = 0.0f, rotY = 0.0f;
     std::srand((unsigned int)std::time(nullptr));
-    const int faceCount = 6;
-    uint32_t faceColors[faceCount];
+    const int faceCount = mesh.indices.size() / 3; 
+    std::vector<uint32_t> faceColors(faceCount);
     for (int i = 0; i < faceCount; i++) {
         unsigned char r = (unsigned char)(std::rand() % 256);
         unsigned char g = (unsigned char)(std::rand() % 256);
@@ -167,44 +164,74 @@ void RunRenderLoop(GLFWwindow* window,
         faceColors[i] = (r << 24) | (g << 16) | (b << 8) | 0xFF;
     }
 
-    while (!glfwWindowShouldClose(window)) {
+    // 2. Pre-allocate storage for projected screen coordinates
+    // This prevents thousands of allocations per second
+    std::vector<Vec2> screenVerts(mesh.vertices.size());
+    std::vector<float> screenDepths(mesh.vertices.size());
 
+    while (!glfwWindowShouldClose(window)) {
         tracker.Tick();
-        float deltaTime = tracker.GetDeltaTime();
+        float time = (float)glfwGetTime();
 
         if (tracker.HasFpsUpdated()) {
             std::string title = "Software Rasterizer - FPS: " + std::to_string(tracker.GetFPS());
             glfwSetWindowTitle(window, title.c_str()); 
         }
 
-        processInput(window);
+       processInput(window, rotX, rotY);
 
+        // 3. Clear the software buffers
         fb->clear(0x000000FF);
         fb->clearDepth();
 
-        // rasterize every triangle with depth testing
-        for (size_t i = 0; i < indices.size(); i += 3) {
-            unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
-            Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
-            float za = screenDepths[i0], zb = screenDepths[i1], zc = screenDepths[i2];
-            uint32_t color = faceColors[(i / 6) % faceCount];
-            DrawTriangle(*fb, a, b, c, za, zb, zc, color);
+        // 4. Dynamic Transformation Stage
+        // SRT Order: Scale -> Rotate -> Translate (though translation is identity here)
+        Mat4 model = rotateY(rotY) * rotateX(rotX) * scale(1.0f, 1.0f, 1.0f);
+        Mat4 MVP = projection * view * model;
+
+        for (size_t i = 0; i < mesh.vertices.size(); ++i) {
+            const Vec3& v = mesh.vertices[i];
+            Vec4 clip = MVP * Vec4(v.x, v.y, v.z, 1.0f);
+            
+            // Perspective Divide: Transform from Clip Space to NDC
+            Vec3 ndc = Vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
+
+            // Viewport Transform: Map NDC [-1, 1] to Screen Pixels [0, Width/Height]
+            screenVerts[i] = Vec2(
+                (ndc.x + 1.0f) / 2.0f * WINDOW_WIDTH,
+                (1.0f - ndc.y) / 2.0f * WINDOW_HEIGHT
+            );
+            screenDepths[i] = (ndc.z + 1.0f) / 2.0f; // Remap Depth to [0, 1]
         }
 
-        // draw wireframe edges on top
-        for (size_t i = 0; i < indices.size(); i += 3) {
-            Vec2 a = screenVerts[indices[i]];
-            Vec2 b = screenVerts[indices[i+1]];
-            Vec2 c = screenVerts[indices[i+2]];
-            DrawLine(*fb, a, b, 0x000000FF);
-            DrawLine(*fb, b, c, 0x000000FF);
-            DrawLine(*fb, c, a, 0x000000FF);
+        // 5. Rasterization Stage (Triangles)
+        for (size_t i = 0; i < mesh.indices.size(); i += 3) {
+            unsigned int i0 = mesh.indices[i];
+            unsigned int i1 = mesh.indices[i+1];
+            unsigned int i2 = mesh.indices[i+2];
+
+            // Use the pre-calculated screen positions and depths
+            DrawTriangle(*fb, 
+                         screenVerts[i0], screenVerts[i1], screenVerts[i2], 
+                         screenDepths[i0], screenDepths[i1], screenDepths[i2], 
+                         faceColors[i / 3]);
         }
 
+        // 6. Optional: Wireframe overlay
+        /*
+        for (size_t i = 0; i < mesh.indices.size(); i += 3) {
+            DrawLine(*fb, screenVerts[mesh.indices[i]], screenVerts[mesh.indices[i+1]], 0xFFFFFFFF);
+            DrawLine(*fb, screenVerts[mesh.indices[i+1]], screenVerts[mesh.indices[i+2]], 0xFFFFFFFF);
+            DrawLine(*fb, screenVerts[mesh.indices[i+2]], screenVerts[mesh.indices[i]], 0xFFFFFFFF);
+        }
+        */
+
+        // 7. Upload the software framebuffer to the GPU texture
         glBindTexture(GL_TEXTURE_2D, textureID);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, fb->getPixels());
 
-        glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+        // 8. Render the full-screen quad using OpenGL
+        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
         glUseProgram(shaderProgram);
@@ -227,78 +254,52 @@ void Cleanup(GLFWwindow* window) {
     
     glfwTerminate();
 }
-
 int main() {
     ObjLoader loader;
     Mesh cube = loader.load("assets/models/sphere.obj");
 
-    std::cout << "Vertices loaded: " << cube.vertices.size() << "\n";
-    for (const Vec3 &v : cube.vertices)
-    {
-        std::cout << "  v " << v.x << " " << v.y << " " << v.z << "\n";
-    }
-
-    std::cout << "Indices loaded: " << cube.indices.size() << "\n";
-    std::cout << "Triangles: " << cube.indices.size() / 3 << "\n";
-
-    // --- Transformation stage ---
-    // 1. build the three matrices
-    Mat4 model      = Mat4::identity();
-    Mat4 view       = Mat4::lookAt(
-                        Vec3(0.0f, 0.0f, 3.0f),   // eye: camera sits 3 units back on Z
-                        Vec3(0.0f, 0.0f, 0.0f),   // target: looking at the origin
-                        Vec3(0.0f, 1.0f, 0.0f)    // up: world up is +Y
-                      );
-    Mat4 projection = Mat4::perspective(
-                        3.14159f / 4.0f,                          // fovY: 45 degrees in radians
-                        (float)WINDOW_WIDTH / (float)WINDOW_HEIGHT, // aspect ratio
-                        0.1f,                                      // near plane
-                        100.0f                                     // far plane
-                      );
-    Mat4 MVP = projection * view * model;
-
-    // 2. project each vertex to screen space
-    std::vector<Vec2>  screenVerts;
-    std::vector<float> screenDepths; // NDC z per vertex, range [0,1]
-    for (const Vec3& v : cube.vertices) {
-        Vec4 clip = MVP * Vec4(v.x, v.y, v.z, 1.0f);
-        Vec3 ndc  = Vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
-
-        Vec2 pixel = Vec2(
-            (ndc.x + 1.0f) / 2.0f * WINDOW_WIDTH,
-            (1.0f - ndc.y) / 2.0f * WINDOW_HEIGHT
-        );
-        screenVerts.push_back(pixel);
-        screenDepths.push_back((ndc.z + 1.0f) / 2.0f); // remap [-1,1] -> [0,1]
-    }
-
-    // print screen positions to verify
-    std::cout << "\nProjected screen positions:\n";
-    for (size_t i = 0; i < screenVerts.size(); i++) {
-        std::cout << "  v" << i << ": (" << screenVerts[i].x << ", " << screenVerts[i].y << ")\n";
-    }
-    // --- end transformation stage ---
+    Mat4 view = Mat4::lookAt(Vec3(0, 0, 5), Vec3(0, 0, 0), Vec3(0, 1, 0));
+    Mat4 projection = Mat4::perspective(3.14159f / 4.0f, (float)800/600, 0.1f, 100.0f);
 
     GLFWwindow *window = InitializeWindow();
-    if (!window)
-    {
-        return -1;
-    }
+    if (!window) return -1;
     
     SetupResources();
-    RunRenderLoop(window, screenVerts, screenDepths, cube.indices);
-    Cleanup(window);
 
+    RunRenderLoop(window, cube, view, projection);
+
+    Cleanup(window);
     return 0;
 }
 
-void processInput(GLFWwindow *window)
+
+void processInput(GLFWwindow* window, float& rotX, float& rotY)
 {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
+
+    const float speed = 0.5f;
+    bool anyKey = false;
+
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP)    == GLFW_PRESS) { rotX -= speed; anyKey = true; }
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_DOWN)  == GLFW_PRESS) { rotX += speed; anyKey = true; }
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT)  == GLFW_PRESS) { rotY -= speed; anyKey = true; }
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) { rotY += speed; anyKey = true; }
+
+    static double lastInputTime = glfwGetTime();
+    if (anyKey)
+        lastInputTime = glfwGetTime();
+
+    double idleSeconds = glfwGetTime() - lastInputTime;
+    if (idleSeconds > 5.0) {
+        rotY += speed * 0.5f;
+        rotX += speed * 0.1f;
+    }
 }
+
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height)
 {
     glViewport(0, 0, width, height);
 }
+
