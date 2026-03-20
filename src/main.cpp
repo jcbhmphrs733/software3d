@@ -19,49 +19,51 @@
 #include "imgui_impl_opengl3.h"
 #include "nfd.h"
 #include "nfd_glfw3.h"
+#include "RecentFilesManager.h"
 
 // Forward declarations
-void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-void processInput(GLFWwindow* window, float& rotX, float& rotY);
-void UpdateQuadVertices(int windowWidth);  // must be declared before framebuffer_size_callback uses it
+void framebuffer_size_callback(GLFWwindow *window, int width, int height);
+void processInput(GLFWwindow *window, float &rotX, float &rotY);
+void UpdateQuadVertices(int windowWidth); // must be declared before framebuffer_size_callback uses it
 
-const int VIEWPORT_WIDTH  = 800;
+const int VIEWPORT_WIDTH = 800;
 const int VIEWPORT_HEIGHT = 600;
-const int PANEL_WIDTH     = 200;
-const int WINDOW_WIDTH    = VIEWPORT_WIDTH + PANEL_WIDTH;
-const int WINDOW_HEIGHT   = VIEWPORT_HEIGHT;
-const char* WINDOW_TITLE  = "Software Rasterizer";
+const int PANEL_WIDTH = 200;
+const int WINDOW_WIDTH = VIEWPORT_WIDTH + PANEL_WIDTH;
+const int WINDOW_HEIGHT = VIEWPORT_HEIGHT;
+const char *WINDOW_TITLE = "Software Rasterizer";
 
-int currentWindowWidth  = WINDOW_WIDTH;
+int currentWindowWidth = WINDOW_WIDTH;
 int currentWindowHeight = WINDOW_HEIGHT;
 
 GLuint shaderProgram, VAO, VBO, EBO, textureID;
-Framebuffer* fb    = nullptr;
+Framebuffer *fb = nullptr;
 bool wireframeOnly = false;
 FpsTracker tracker;
 
-const char* vertexShaderSource = "#version 330 core\n"
-    "layout (location = 0) in vec2 aPos;\n"
-    "layout (location = 1) in vec2 aTexCoord;\n"
-    "out vec2 TexCoord;\n"
-    "void main()\n"
-    "{\n"
-    "   gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);\n"
-    "   TexCoord = aTexCoord;\n"
-    "}\0";
+// Recent files manager global variable
+RecentFilesManager recentFilesManager;
 
-const char* fragmentShaderSource = "#version 330 core\n"
-    "out vec4 FragColor;\n"
-    "in vec2 TexCoord;\n"
-    "uniform sampler2D ourTexture;\n"
-    "void main()\n"
-    "{\n"
-    "   FragColor = texture(ourTexture, TexCoord);\n"
-    "}\n\0";
+const char *vertexShaderSource = "#version 330 core\n"
+                                 "layout (location = 0) in vec2 aPos;\n"
+                                 "layout (location = 1) in vec2 aTexCoord;\n"
+                                 "out vec2 TexCoord;\n"
+                                 "void main()\n"
+                                 "{\n"
+                                 "   gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);\n"
+                                 "   TexCoord = aTexCoord;\n"
+                                 "}\0";
 
- 
+const char *fragmentShaderSource = "#version 330 core\n"
+                                   "out vec4 FragColor;\n"
+                                   "in vec2 TexCoord;\n"
+                                   "uniform sampler2D ourTexture;\n"
+                                   "void main()\n"
+                                   "{\n"
+                                   "   FragColor = texture(ourTexture, TexCoord);\n"
+                                   "}\n\0";
 
-GLFWwindow* InitializeWindow()
+GLFWwindow *InitializeWindow()
 {
     if (!glfwInit())
         return nullptr;
@@ -70,8 +72,9 @@ GLFWwindow* InitializeWindow()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, NULL, NULL);
-    if (!window) {
+    GLFWwindow *window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, NULL, NULL);
+    if (!window)
+    {
         glfwTerminate();
         return nullptr;
     }
@@ -79,7 +82,8 @@ GLFWwindow* InitializeWindow()
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
+    {
         std::cerr << "Failed to initialize GLAD\n";
         return nullptr;
     }
@@ -94,8 +98,6 @@ GLFWwindow* InitializeWindow()
 
     return window;
 }
-
- 
 
 void SetupResources()
 {
@@ -117,12 +119,11 @@ void SetupResources()
 
     float viewportRight = 1.0f - 2.0f * ((float)PANEL_WIDTH / (float)WINDOW_WIDTH);
     float vertices[] = {
-         viewportRight,  1.0f,   1.0f, 1.0f,
-         viewportRight, -1.0f,   1.0f, 0.0f,
-        -1.0f,          -1.0f,   0.0f, 0.0f,
-        -1.0f,           1.0f,   0.0f, 1.0f
-    };
-    unsigned int indices[] = { 0, 1, 3, 1, 2, 3 };
+        viewportRight, 1.0f, 1.0f, 1.0f,
+        viewportRight, -1.0f, 1.0f, 0.0f,
+        -1.0f, -1.0f, 0.0f, 0.0f,
+        -1.0f, 1.0f, 0.0f, 1.0f};
+    unsigned int indices[] = {0, 1, 3, 1, 2, 3};
 
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
@@ -137,10 +138,10 @@ void SetupResources()
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
     glEnableVertexAttribArray(0);
 
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
     glGenTextures(1, &textureID);
@@ -152,32 +153,29 @@ void SetupResources()
     fb = new Framebuffer(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
 }
 
- 
-
 void UpdateQuadVertices(int windowWidth)
 {
     float viewportRight = 1.0f - 2.0f * ((float)PANEL_WIDTH / (float)windowWidth);
     float vertices[] = {
-         viewportRight,  1.0f,   1.0f, 1.0f,
-         viewportRight, -1.0f,   1.0f, 0.0f,
-        -1.0f,          -1.0f,   0.0f, 0.0f,
-        -1.0f,           1.0f,   0.0f, 1.0f
-    };
+        viewportRight, 1.0f, 1.0f, 1.0f,
+        viewportRight, -1.0f, 1.0f, 0.0f,
+        -1.0f, -1.0f, 0.0f, 0.0f,
+        -1.0f, 1.0f, 0.0f, 1.0f};
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
 }
 
- 
-
-void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const Mat4& projection)
+void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const Mat4 &projection)
 {
     float rotX = 0.0f, rotY = 0.0f;
 
     std::srand((unsigned int)std::time(nullptr));
 
-    auto buildFaceColors = [](size_t triCount) {
+    auto buildFaceColors = [](size_t triCount)
+    {
         std::vector<uint32_t> colors(triCount);
-        for (size_t i = 0; i < triCount; i++) {
+        for (size_t i = 0; i < triCount; i++)
+        {
             unsigned char r = (unsigned char)(std::rand() % 256);
             unsigned char g = (unsigned char)(std::rand() % 256);
             unsigned char b = (unsigned char)(std::rand() % 256);
@@ -186,17 +184,18 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
         return colors;
     };
 
-    std::vector<unsigned int> indices    = mesh.indices;
-    std::vector<uint32_t>     faceColors = buildFaceColors(indices.size() / 3);
-    std::vector<Vec2>         screenVerts(mesh.vertices.size());
-    std::vector<float>        screenDepths(mesh.vertices.size());
+    std::vector<unsigned int> indices = mesh.indices;
+    std::vector<uint32_t> faceColors = buildFaceColors(indices.size() / 3);
+    std::vector<Vec2> screenVerts(mesh.vertices.size());
+    std::vector<float> screenDepths(mesh.vertices.size());
 
     Mesh currentMesh = mesh;
 
     std::string loadedFilePath;
-    ObjLoader   loader;
+    ObjLoader loader;
 
-    while (!glfwWindowShouldClose(window)) {
+    while (!glfwWindowShouldClose(window))
+    {
         tracker.Tick();
 
         if (tracker.HasFpsUpdated())
@@ -208,38 +207,42 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
         fb->clearDepth();
 
         Mat4 model = rotateY(rotY) * rotateX(rotX);
-        Mat4 MVP   = projection * view * model;
+        Mat4 MVP = projection * view * model;
 
         screenVerts.resize(currentMesh.vertices.size());
         screenDepths.resize(currentMesh.vertices.size());
 
-        for (size_t i = 0; i < currentMesh.vertices.size(); ++i) {
-            const Vec3& v = currentMesh.vertices[i];
+        for (size_t i = 0; i < currentMesh.vertices.size(); ++i)
+        {
+            const Vec3 &v = currentMesh.vertices[i];
             Vec4 clip = MVP * Vec4(v.x, v.y, v.z, 1.0f);
-            Vec3 ndc  = Vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
-            screenVerts[i]  = Vec2(
+            Vec3 ndc = Vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
+            screenVerts[i] = Vec2(
                 (ndc.x + 1.0f) / 2.0f * VIEWPORT_WIDTH,
-                (1.0f - ndc.y) / 2.0f * VIEWPORT_HEIGHT
-            );
+                (1.0f - ndc.y) / 2.0f * VIEWPORT_HEIGHT);
             screenDepths[i] = (ndc.z + 1.0f) / 2.0f;
         }
 
-        if (!wireframeOnly) {
-            for (size_t i = 0; i < indices.size(); i += 3) {
-                unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+        if (!wireframeOnly)
+        {
+            for (size_t i = 0; i < indices.size(); i += 3)
+            {
+                unsigned int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
                 DrawTriangle(*fb,
-                    screenVerts[i0],  screenVerts[i1],  screenVerts[i2],
-                    screenDepths[i0], screenDepths[i1], screenDepths[i2],
-                    faceColors[i / 3]);
+                             screenVerts[i0], screenVerts[i1], screenVerts[i2],
+                             screenDepths[i0], screenDepths[i1], screenDepths[i2],
+                             faceColors[i / 3]);
             }
         }
 
-        for (size_t i = 0; i < indices.size(); i += 3) {
+        for (size_t i = 0; i < indices.size(); i += 3)
+        {
             Vec2 a = screenVerts[indices[i]];
-            Vec2 b = screenVerts[indices[i+1]];
-            Vec2 c = screenVerts[indices[i+2]];
+            Vec2 b = screenVerts[indices[i + 1]];
+            Vec2 c = screenVerts[indices[i + 2]];
             float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-            if (area <= 0.0f) continue;
+            if (area <= 0.0f)
+                continue;
             DrawLine(*fb, a, b, 0xFFFFFFFF);
             DrawLine(*fb, b, c, 0xFFFFFFFF);
             DrawLine(*fb, c, a, 0xFFFFFFFF);
@@ -263,11 +266,11 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
         ImGui::SetNextWindowPos(ImVec2((float)(currentWindowWidth - PANEL_WIDTH), 0.0f), ImGuiCond_Always);
         ImGui::SetNextWindowSize(ImVec2((float)PANEL_WIDTH, (float)currentWindowHeight), ImGuiCond_Always);
         ImGui::Begin("Scene", nullptr,
-            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
 
         ImGui::Text("Performance");
         ImGui::Separator();
-        ImGui::Text("FPS:        %d",      tracker.GetFPS());
+        ImGui::Text("FPS:        %d", tracker.GetFPS());
         ImGui::Text("Frame time: %.2f ms", tracker.GetDeltaTime() * 1000.0f);
         ImGui::Text("Updated:    every 1 sec");
 
@@ -278,29 +281,60 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
             ImGui::Text("No file loaded");
         else
             ImGui::TextWrapped("%s",
-                std::filesystem::path(loadedFilePath).filename().string().c_str());
+                               std::filesystem::path(loadedFilePath).filename().string().c_str());
 
         ImGui::Spacing();
-        if (ImGui::Button("Open OBJ...", ImVec2(-1, 0))) {
-            nfdu8char_t* outPath = nullptr;
-            nfdfilteritem_t filters[] = { {"OBJ Files", "obj"} };
+        if (ImGui::Button("Open OBJ...", ImVec2(-1, 0)))
+        {
+            nfdu8char_t *outPath = nullptr;
+            nfdfilteritem_t filters[] = {{"OBJ Files", "obj"}};
             nfdwindowhandle_t parentHandle;
             NFD_GetNativeWindowFromGLFWWindow(window, &parentHandle);
             nfdopendialogu8args_t args = {};
-            args.filterList   = filters;
-            args.filterCount  = 1;
+            args.filterList = filters;
+            args.filterCount = 1;
             args.parentWindow = parentHandle;
 
-            if (NFD_OpenDialogU8_With(&outPath, &args) == NFD_OKAY) {
+            if (NFD_OpenDialogU8_With(&outPath, &args) == NFD_OKAY)
+            {
                 loadedFilePath = outPath;
                 NFD_FreePathU8(outPath);
 
-                currentMesh  = loader.load(loadedFilePath);
-                indices      = currentMesh.indices;
-                faceColors   = buildFaceColors(indices.size() / 3);
+                // recent files management
+                recentFilesManager.Add(loadedFilePath);
+
+                currentMesh = loader.load(loadedFilePath);
+                indices = currentMesh.indices;
+                faceColors = buildFaceColors(indices.size() / 3);
                 screenVerts.resize(currentMesh.vertices.size());
                 screenDepths.resize(currentMesh.vertices.size());
-                rotX = rotY  = 0.0f;
+                rotX = rotY = 0.0f;
+            }
+        }
+
+        // Adding recent files to the panel
+        ImGui::Spacing();
+        ImGui::Text("Recent Files");
+        ImGui::Separator();
+
+        if (recentFilesManager.IsEmpty())
+        {
+            ImGui::Text("No recent files.");
+        }
+        else
+        {
+            for (const auto &filepath : recentFilesManager.GetFiles())
+            {
+                if (ImGui::Button(std::filesystem::path(filepath).filename().string().c_str()))
+                {
+                    loadedFilePath = filepath;
+                    currentMesh = loader.load(loadedFilePath);
+                    indices = currentMesh.indices;
+                    faceColors = buildFaceColors(indices.size() / 3);
+                    screenVerts.resize(currentMesh.vertices.size());
+                    screenDepths.resize(currentMesh.vertices.size());
+                    rotX = rotY = 0.0f;
+                }
             }
         }
 
@@ -313,9 +347,7 @@ void RunRenderLoop(GLFWwindow* window, const Mesh& mesh, const Mat4& view, const
     }
 }
 
- 
-
-void Cleanup(GLFWwindow* window)
+void Cleanup(GLFWwindow *window)
 {
     NFD_Quit();
 
@@ -334,8 +366,6 @@ void Cleanup(GLFWwindow* window)
     glfwTerminate();
 }
 
- 
-
 int main()
 {
     ObjLoader loader;
@@ -344,16 +374,18 @@ int main()
     Mat4 view = Mat4::lookAt(
         Vec3(0.0f, 0.0f, 5.0f),
         Vec3(0.0f, 0.0f, 0.0f),
-        Vec3(0.0f, 1.0f, 0.0f)
-    );
+        Vec3(0.0f, 1.0f, 0.0f));
     Mat4 projection = Mat4::perspective(
         3.14159f / 4.0f,
         (float)VIEWPORT_WIDTH / (float)VIEWPORT_HEIGHT,
-        0.1f, 100.0f
-    );
+        0.1f, 100.0f);
 
-    GLFWwindow* window = InitializeWindow();
-    if (!window) return -1;
+    GLFWwindow *window = InitializeWindow();
+    if (!window)
+        return -1;
+
+    // Save Recent Files on Exit
+    recentFilesManager.Save();
 
     SetupResources();
     RunRenderLoop(window, mesh, view, projection);
@@ -361,9 +393,7 @@ int main()
     return 0;
 }
 
- 
-
-void processInput(GLFWwindow* window, float& rotX, float& rotY)
+void processInput(GLFWwindow *window, float &rotX, float &rotY)
 {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
@@ -371,16 +401,33 @@ void processInput(GLFWwindow* window, float& rotX, float& rotY)
     const float speed = 0.5f;
     bool anyKey = false;
 
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP)    == GLFW_PRESS) { rotX -= speed; anyKey = true; }
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_DOWN)  == GLFW_PRESS) { rotX += speed; anyKey = true; }
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT)  == GLFW_PRESS) { rotY -= speed; anyKey = true; }
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) { rotY += speed; anyKey = true; }
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+    {
+        rotX -= speed;
+        anyKey = true;
+    }
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+    {
+        rotX += speed;
+        anyKey = true;
+    }
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
+    {
+        rotY -= speed;
+        anyKey = true;
+    }
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+    {
+        rotY += speed;
+        anyKey = true;
+    }
 
     static double lastInputTime = glfwGetTime();
     if (anyKey)
         lastInputTime = glfwGetTime();
 
-    if (glfwGetTime() - lastInputTime > 5.0) {
+    if (glfwGetTime() - lastInputTime > 5.0)
+    {
         rotY += speed * 0.5f;
         rotX += speed * 0.1f;
     }
@@ -392,10 +439,9 @@ void processInput(GLFWwindow* window, float& rotX, float& rotY)
     fWasPressed = fIsPressed;
 }
 
-
-void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+void framebuffer_size_callback(GLFWwindow *window, int width, int height)
 {
-    currentWindowWidth  = width;
+    currentWindowWidth = width;
     currentWindowHeight = height;
     glViewport(0, 0, width, height);
     UpdateQuadVertices(width);

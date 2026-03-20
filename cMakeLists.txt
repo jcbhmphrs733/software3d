@@ -16,6 +16,7 @@ add_executable(software3d
     src/glad.c
     src/framebuffer.cpp
     src/rasterizer.cpp
+    src/RecentFilesManager.cpp
     ${MATH_SOURCES}
     ${MESH_SOURCES}
     ${IMGUI_SOURCES}
