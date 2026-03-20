@@ -6,6 +6,8 @@
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
+#include <limits>
+#include <algorithm>
 #include "math/vec2.h"
 #include "math/vec3.h"
 #include "math/vec4.h"
@@ -169,27 +171,15 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
 {
     float rotX = 0.0f, rotY = 0.0f;
 
-    std::srand((unsigned int)std::time(nullptr));
-
-    auto buildFaceColors = [](size_t triCount)
-    {
-        std::vector<uint32_t> colors(triCount);
-        for (size_t i = 0; i < triCount; i++)
-        {
-            unsigned char r = (unsigned char)(std::rand() % 256);
-            unsigned char g = (unsigned char)(std::rand() % 256);
-            unsigned char b = (unsigned char)(std::rand() % 256);
-            colors[i] = (r << 24) | (g << 16) | (b << 8) | 0xFF;
-        }
-        return colors;
-    };
-
     std::vector<unsigned int> indices = mesh.indices;
-    std::vector<uint32_t> faceColors = buildFaceColors(indices.size() / 3);
-    std::vector<Vec2> screenVerts(mesh.vertices.size());
-    std::vector<float> screenDepths(mesh.vertices.size());
+    std::vector<Vec2>         screenVerts(mesh.vertices.size());
+    std::vector<float>        screenDepths(mesh.vertices.size());
 
     Mesh currentMesh = mesh;
+
+    // UI-controlled shading parameters
+    float meshColor[3]  = { 0.2f, 0.6f, 1.0f }; // base RGB in [0,1]
+    float depthFalloff  = 1.0f;                  // 0 = flat, higher = darker at distance
 
     std::string loadedFilePath;
     ObjLoader loader;
@@ -223,29 +213,57 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
             screenDepths[i] = (ndc.z + 1.0f) / 2.0f;
         }
 
-        if (!wireframeOnly)
-        {
-            for (size_t i = 0; i < indices.size(); i += 3)
-            {
-                unsigned int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
-                DrawTriangle(*fb,
-                             screenVerts[i0], screenVerts[i1], screenVerts[i2],
-                             screenDepths[i0], screenDepths[i1], screenDepths[i2],
-                             faceColors[i / 3]);
+        if (wireframeOnly) {
+            // Wireframe mode: draw every edge with no culling so the full mesh is visible
+            for (size_t i = 0; i < indices.size(); i += 3) {
+                unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+                DrawLine(*fb, screenVerts[i0], screenVerts[i1], screenDepths[i0], screenDepths[i1], 0xFFFFFFFF);
+                DrawLine(*fb, screenVerts[i1], screenVerts[i2], screenDepths[i1], screenDepths[i2], 0xFFFFFFFF);
+                DrawLine(*fb, screenVerts[i2], screenVerts[i0], screenDepths[i2], screenDepths[i0], 0xFFFFFFFF);
             }
-        }
+        } else {
+            // Solid mode — two passes:
+            // Pass 1: fill all front-facing triangles (builds the full depth buffer)
+            // Pass 2: draw edges after, so they depth-test against every filled triangle
 
-        for (size_t i = 0; i < indices.size(); i += 3)
-        {
-            Vec2 a = screenVerts[indices[i]];
-            Vec2 b = screenVerts[indices[i + 1]];
-            Vec2 c = screenVerts[indices[i + 2]];
-            float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-            if (area <= 0.0f)
-                continue;
-            DrawLine(*fb, a, b, 0xFFFFFFFF);
-            DrawLine(*fb, b, c, 0xFFFFFFFF);
-            DrawLine(*fb, c, a, 0xFFFFFFFF);
+            float depthMin = std::numeric_limits<float>::max();
+            float depthMax = std::numeric_limits<float>::lowest();
+            for (size_t i = 0; i < indices.size(); i += 3) {
+                unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+                Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
+                float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+                if (area >= 0.0f) continue;
+                depthMin = std::min(depthMin, std::min({screenDepths[i0], screenDepths[i1], screenDepths[i2]}));
+                depthMax = std::max(depthMax, std::max({screenDepths[i0], screenDepths[i1], screenDepths[i2]}));
+            }
+
+            uint32_t color = ((unsigned char)(meshColor[0] * 255) << 24)
+                           | ((unsigned char)(meshColor[1] * 255) << 16)
+                           | ((unsigned char)(meshColor[2] * 255) <<  8)
+                           | 0xFF;
+
+            // Pass 1: fills
+            for (size_t i = 0; i < indices.size(); i += 3) {
+                unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+                Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
+                float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+                if (area >= 0.0f) continue;
+                DrawTriangle(*fb, a, b, c,
+                    screenDepths[i0], screenDepths[i1], screenDepths[i2],
+                    color, depthFalloff, depthMin, depthMax);
+            }
+
+            // Pass 2: edges — depth buffer is fully populated so edges correctly
+            // occlude behind closer triangles; tiny bias beats same-triangle float noise
+            for (size_t i = 0; i < indices.size(); i += 3) {
+                unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+                Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
+                float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+                if (area >= 0.0f) continue;
+                DrawLine(*fb, a, b, screenDepths[i0], screenDepths[i1], 0x000000FF);
+                DrawLine(*fb, b, c, screenDepths[i1], screenDepths[i2], 0x000000FF);
+                DrawLine(*fb, c, a, screenDepths[i2], screenDepths[i0], 0x000000FF);
+            }
         }
 
         glBindTexture(GL_TEXTURE_2D, textureID);
@@ -272,7 +290,12 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
         ImGui::Separator();
         ImGui::Text("FPS:        %d", tracker.GetFPS());
         ImGui::Text("Frame time: %.2f ms", tracker.GetDeltaTime() * 1000.0f);
-        ImGui::Text("Updated:    every 1 sec");
+
+        ImGui::Spacing();
+        ImGui::Text("Shading");
+        ImGui::Separator();
+        ImGui::ColorEdit3("Color", meshColor);
+        ImGui::SliderFloat("Depth Falloff", &depthFalloff, 0.0f, 2.0f);
 
         ImGui::Spacing();
         ImGui::Text("OBJ Loader");
@@ -300,12 +323,9 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
                 loadedFilePath = outPath;
                 NFD_FreePathU8(outPath);
 
-                // recent files management
                 recentFilesManager.Add(loadedFilePath);
-
                 currentMesh = loader.load(loadedFilePath);
-                indices = currentMesh.indices;
-                faceColors = buildFaceColors(indices.size() / 3);
+                indices     = currentMesh.indices;
                 screenVerts.resize(currentMesh.vertices.size());
                 screenDepths.resize(currentMesh.vertices.size());
                 rotX = rotY = 0.0f;
@@ -329,11 +349,38 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
                 {
                     loadedFilePath = filepath;
                     currentMesh = loader.load(loadedFilePath);
-                    indices = currentMesh.indices;
-                    faceColors = buildFaceColors(indices.size() / 3);
+                    indices     = currentMesh.indices;
                     screenVerts.resize(currentMesh.vertices.size());
                     screenDepths.resize(currentMesh.vertices.size());
                     rotX = rotY = 0.0f;
+                }
+            }
+        }
+
+        // Mesh Stats
+        ImGui::Spacing();
+        ImGui::Text("Mesh Stats:");
+        ImGui::Separator();
+        {
+            size_t faceCount   = currentMesh.indices.size() / 3;
+            size_t vertCount   = currentMesh.vertices.size();
+            // For a closed manifold mesh edges = 3*faces/2; for open meshes this is an upper bound
+            size_t edgeCount   = faceCount * 3 / 2;
+
+            ImGui::Text("Verts:    %zu", vertCount);
+            ImGui::Text("Faces:    %zu", faceCount);
+            ImGui::Text("Edges:    %zu", edgeCount);
+
+            if (!loadedFilePath.empty()) {
+                std::error_code ec;
+                auto bytes = std::filesystem::file_size(loadedFilePath, ec);
+                if (!ec) {
+                    if (bytes < 1024)
+                        ImGui::Text("File size:     %zu B", bytes);
+                    else if (bytes < 1024 * 1024)
+                        ImGui::Text("File size:     %.1f KB", bytes / 1024.0);
+                    else
+                        ImGui::Text("File size:     %.1f MB", bytes / (1024.0 * 1024.0));
                 }
             }
         }
@@ -398,7 +445,7 @@ void processInput(GLFWwindow *window, float &rotX, float &rotY)
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 
-    const float speed = 0.5f;
+    const float speed = 0.75f;
     bool anyKey = false;
 
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
