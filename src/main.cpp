@@ -172,14 +172,14 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
     float rotX = 0.0f, rotY = 0.0f;
 
     std::vector<unsigned int> indices = mesh.indices;
-    std::vector<Vec2>         screenVerts(mesh.vertices.size());
-    std::vector<float>        screenDepths(mesh.vertices.size());
+    std::vector<Vec2> screenVerts(mesh.vertices.size());
+    std::vector<float> screenDepths(mesh.vertices.size());
 
     Mesh currentMesh = mesh;
 
     // UI-controlled shading parameters
-    float meshColor[3]  = { 0.2f, 0.6f, 1.0f }; // base RGB in [0,1]
-    float depthFalloff  = 1.0f;                  // 0 = flat, higher = darker at distance
+    float meshColor[3] = {0.2f, 0.6f, 1.0f}; // base RGB in [0,1]
+    float depthFalloff = 1.0f;               // 0 = flat, higher = darker at distance
 
     std::string loadedFilePath;
     ObjLoader loader;
@@ -213,53 +213,60 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
             screenDepths[i] = (ndc.z + 1.0f) / 2.0f;
         }
 
-        if (wireframeOnly) {
+        if (wireframeOnly)
+        {
             // Wireframe mode: draw every edge with no culling so the full mesh is visible
-            for (size_t i = 0; i < indices.size(); i += 3) {
-                unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+            for (size_t i = 0; i < indices.size(); i += 3)
+            {
+                unsigned int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
                 DrawLine(*fb, screenVerts[i0], screenVerts[i1], screenDepths[i0], screenDepths[i1], 0xFFFFFFFF);
                 DrawLine(*fb, screenVerts[i1], screenVerts[i2], screenDepths[i1], screenDepths[i2], 0xFFFFFFFF);
                 DrawLine(*fb, screenVerts[i2], screenVerts[i0], screenDepths[i2], screenDepths[i0], 0xFFFFFFFF);
             }
-        } else {
+        }
+        else
+        {
             // Solid mode — two passes:
             // Pass 1: fill all front-facing triangles (builds the full depth buffer)
             // Pass 2: draw edges after, so they depth-test against every filled triangle
 
             float depthMin = std::numeric_limits<float>::max();
             float depthMax = std::numeric_limits<float>::lowest();
-            for (size_t i = 0; i < indices.size(); i += 3) {
-                unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+            for (size_t i = 0; i < indices.size(); i += 3)
+            {
+                unsigned int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
                 Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
                 float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-                if (area >= 0.0f) continue;
+                if (area >= 0.0f)
+                    continue;
                 depthMin = std::min(depthMin, std::min({screenDepths[i0], screenDepths[i1], screenDepths[i2]}));
                 depthMax = std::max(depthMax, std::max({screenDepths[i0], screenDepths[i1], screenDepths[i2]}));
             }
 
-            uint32_t color = ((unsigned char)(meshColor[0] * 255) << 24)
-                           | ((unsigned char)(meshColor[1] * 255) << 16)
-                           | ((unsigned char)(meshColor[2] * 255) <<  8)
-                           | 0xFF;
+            uint32_t color = ((unsigned char)(meshColor[0] * 255) << 24) | ((unsigned char)(meshColor[1] * 255) << 16) | ((unsigned char)(meshColor[2] * 255) << 8) | 0xFF;
 
             // Pass 1: fills
-            for (size_t i = 0; i < indices.size(); i += 3) {
-                unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+            for (size_t i = 0; i < indices.size(); i += 3)
+            {
+                unsigned int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
                 Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
                 float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-                if (area >= 0.0f) continue;
+                if (area >= 0.0f)
+                    continue;
                 DrawTriangle(*fb, a, b, c,
-                    screenDepths[i0], screenDepths[i1], screenDepths[i2],
-                    color, depthFalloff, depthMin, depthMax);
+                             screenDepths[i0], screenDepths[i1], screenDepths[i2],
+                             color, depthFalloff, depthMin, depthMax);
             }
 
             // Pass 2: edges — depth buffer is fully populated so edges correctly
             // occlude behind closer triangles; tiny bias beats same-triangle float noise
-            for (size_t i = 0; i < indices.size(); i += 3) {
-                unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+            for (size_t i = 0; i < indices.size(); i += 3)
+            {
+                unsigned int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
                 Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
                 float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-                if (area >= 0.0f) continue;
+                if (area >= 0.0f)
+                    continue;
                 DrawLine(*fb, a, b, screenDepths[i0], screenDepths[i1], 0x000000FF);
                 DrawLine(*fb, b, c, screenDepths[i1], screenDepths[i2], 0x000000FF);
                 DrawLine(*fb, c, a, screenDepths[i2], screenDepths[i0], 0x000000FF);
@@ -325,7 +332,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
 
                 recentFilesManager.Add(loadedFilePath);
                 currentMesh = loader.load(loadedFilePath);
-                indices     = currentMesh.indices;
+                indices = currentMesh.indices;
                 screenVerts.resize(currentMesh.vertices.size());
                 screenDepths.resize(currentMesh.vertices.size());
                 rotX = rotY = 0.0f;
@@ -349,7 +356,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
                 {
                     loadedFilePath = filepath;
                     currentMesh = loader.load(loadedFilePath);
-                    indices     = currentMesh.indices;
+                    indices = currentMesh.indices;
                     screenVerts.resize(currentMesh.vertices.size());
                     screenDepths.resize(currentMesh.vertices.size());
                     rotX = rotY = 0.0f;
@@ -362,19 +369,21 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
         ImGui::Text("Mesh Stats:");
         ImGui::Separator();
         {
-            size_t faceCount   = currentMesh.indices.size() / 3;
-            size_t vertCount   = currentMesh.vertices.size();
+            size_t faceCount = currentMesh.indices.size() / 3;
+            size_t vertCount = currentMesh.vertices.size();
             // For a closed manifold mesh edges = 3*faces/2; for open meshes this is an upper bound
-            size_t edgeCount   = faceCount * 3 / 2;
+            size_t edgeCount = faceCount * 3 / 2;
 
             ImGui::Text("Verts:    %zu", vertCount);
             ImGui::Text("Faces:    %zu", faceCount);
             ImGui::Text("Edges:    %zu", edgeCount);
 
-            if (!loadedFilePath.empty()) {
+            if (!loadedFilePath.empty())
+            {
                 std::error_code ec;
                 auto bytes = std::filesystem::file_size(loadedFilePath, ec);
-                if (!ec) {
+                if (!ec)
+                {
                     if (bytes < 1024)
                         ImGui::Text("File size:     %zu B", bytes);
                     else if (bytes < 1024 * 1024)
@@ -396,6 +405,9 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
 
 void Cleanup(GLFWwindow *window)
 {
+    // Save Recent Files on Exit
+    recentFilesManager.Save();
+
     NFD_Quit();
 
     ImGui_ImplOpenGL3_Shutdown();
@@ -416,7 +428,21 @@ void Cleanup(GLFWwindow *window)
 int main()
 {
     ObjLoader loader;
-    Mesh mesh = loader.load("assets/models/monkey.obj");
+
+    std::string loadedFilePath;
+
+    Mesh mesh;
+
+    if (!recentFilesManager.IsEmpty())
+    {
+        loadedFilePath = recentFilesManager.GetFiles()[0];
+        mesh = loader.load(loadedFilePath);
+    }
+    else
+    {
+        mesh = loader.load("assets/models/monkey.obj"); // Default
+    }
+    // Mesh mesh = loader.load("assets/models/monkey.obj");
 
     Mat4 view = Mat4::lookAt(
         Vec3(0.0f, 0.0f, 5.0f),
@@ -430,9 +456,6 @@ int main()
     GLFWwindow *window = InitializeWindow();
     if (!window)
         return -1;
-
-    // Save Recent Files on Exit
-    recentFilesManager.Save();
 
     SetupResources();
     RunRenderLoop(window, mesh, view, projection);
