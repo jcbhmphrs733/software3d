@@ -178,11 +178,17 @@ void UpdateQuadVertices(int windowWidth)
 }
 void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
 {
+    Texture tex;
+    bool useTexture = false;
+    bool texLoaded = tex.load("assets/textures/metal.jpg");
+    if (!texLoaded)
+    std::cerr << "Warning: texture failed to load\n";
     float rotX = 0.0f, rotY = 0.0f;
 
     std::vector<unsigned int> indices = mesh.indices;
     std::vector<Vec2>         screenVerts(mesh.vertices.size());
     std::vector<float>        screenDepths(mesh.vertices.size());
+    std::vector<float>        clipWs(mesh.vertices.size());
 
     Mesh currentMesh = mesh;
 
@@ -238,6 +244,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
 
         screenVerts.resize(currentMesh.vertices.size());
         screenDepths.resize(currentMesh.vertices.size());
+        clipWs.resize(currentMesh.vertices.size());
 
         for (size_t i = 0; i < currentMesh.vertices.size(); ++i)
         {
@@ -248,6 +255,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
                 (ndc.x + 1.0f) / 2.0f * VIEWPORT_WIDTH,
                 (1.0f - ndc.y) / 2.0f * VIEWPORT_HEIGHT);
             screenDepths[i] = (ndc.z + 1.0f) / 2.0f;
+            clipWs[i] = clip.w;
         }
 
         if (wireframeOnly) {
@@ -298,10 +306,20 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
                     lightIntensity = (d > 0.0f) ? d : 0.0f;
                 }
 
+                              Vec2 uva, uvb, uvc;
+                if (useTexture && texLoaded && i < currentMesh.uvIndices.size()) {
+                    uva = currentMesh.uvs[currentMesh.uvIndices[i]];
+                    uvb = currentMesh.uvs[currentMesh.uvIndices[i + 1]];
+                    uvc = currentMesh.uvs[currentMesh.uvIndices[i + 2]];
+                }
+
                 DrawTriangle(*fb, a, b, c,
                     screenDepths[i0], screenDepths[i1], screenDepths[i2],
                     color, depthFalloff, depthMin, depthMax,
-                    lightIntensity, ambientStrength, useDiffuse);
+                    lightIntensity, ambientStrength, useDiffuse,
+                    (useTexture && texLoaded) ? &tex : nullptr,
+                    uva, uvb, uvc,
+                    clipWs[i0], clipWs[i1], clipWs[i2]);
             }
 
             for (size_t i = 0; i < indices.size(); i += 3) {
@@ -342,6 +360,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
         ImGui::Spacing();
         ImGui::Text("Shading");
         ImGui::Separator();
+        ImGui::Checkbox("Use Texture", &useTexture);
         ImGui::ColorEdit3("Color", meshColor);
         ImGui::Checkbox("Diffuse Lighting", &useDiffuse);
         if (useDiffuse) {

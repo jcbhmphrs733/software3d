@@ -11,13 +11,16 @@ void DrawTriangle(Framebuffer& fb,
                   float za, float zb, float zc,
                   uint32_t color, float depthFalloff,
                   float depthMin, float depthMax,
-                  float lightIntensity, float ambientStrength, bool useDiffuse) {
+                  float lightIntensity, float ambientStrength, bool useDiffuse,
+                  const Texture* tex,
+                  Vec2 uva, Vec2 uvb, Vec2 uvc,
+                  float wa, float wb, float wc) { // Update signature here
     int minX = (int)std::max(0.0f,                      std::min({a.x, b.x, c.x}));
     int minY = (int)std::max(0.0f,                      std::min({a.y, b.y, c.y}));
     int maxX = (int)std::min((float)fb.getWidth()  - 1, std::max({a.x, b.x, c.x}));
     int maxY = (int)std::min((float)fb.getHeight() - 1, std::max({a.y, b.y, c.y}));
 
-    float areaInv = 1.0f / edgeFunction(a, b, c); // total triangle area (reciprocal for speed)
+    float areaInv = 1.0f / edgeFunction(a, b, c); 
 
     for (int y = minY; y <= maxY; y++) {
         for (int x = minX; x <= maxX; x++) {
@@ -27,11 +30,6 @@ void DrawTriangle(Framebuffer& fb,
             float w1 = edgeFunction(c, a, p);
             float w2 = edgeFunction(a, b, p);
 
-            // Normalize by area so the sign is consistent regardless of winding order.
-            // Front-facing triangles in our Y-down screen space have negative area,
-            // so w0/w1/w2 are also negative for interior pixels — checking the raw
-            // values against >= 0 would always fail.  Multiplying by areaInv flips
-            // them to positive, making this test winding-agnostic.
             float bar0 = w0 * areaInv;
             float bar1 = w1 * areaInv;
             float bar2 = w2 * areaInv;
@@ -41,19 +39,41 @@ void DrawTriangle(Framebuffer& fb,
 
                 float shade;
                 if (useDiffuse) {
-                    // diffuse: ambient + light contribution, constant across the triangle
                     shade = ambientStrength + (1.0f - ambientStrength) * lightIntensity;
                     if (shade > 1.0f) shade = 1.0f;
                 } else {
-                    // depth-falloff: darker pixels are further from the camera
                     float range = depthMax - depthMin;
                     float normalizedDepth = (range > 0.0f) ? (depth - depthMin) / range : 0.0f;
                     shade = 1.0f - normalizedDepth * depthFalloff;
                     if (shade < 0.0f) shade = 0.0f;
                 }
-                unsigned char r = (unsigned char)(((color >> 24) & 0xFF) * shade);
-                unsigned char g = (unsigned char)(((color >> 16) & 0xFF) * shade);
-                unsigned char b = (unsigned char)(((color >>  8) & 0xFF) * shade);
+
+                uint32_t baseColor;
+                if (tex) {
+                    float inv_wa = 1.0f / wa;
+                    float inv_wb = 1.0f / wb;
+                    float inv_wc = 1.0f / wc;
+
+                    Vec2 uva_w = Vec2(uva.x * inv_wa, uva.y * inv_wa);
+                    Vec2 uvb_w = Vec2(uvb.x * inv_wb, uvb.y * inv_wb);
+                    Vec2 uvc_w = Vec2(uvc.x * inv_wc, uvc.y * inv_wc);
+
+                    float inv_w_interp = bar0 * inv_wa + bar1 * inv_wb + bar2 * inv_wc;
+
+                    float u_interp = bar0 * uva_w.x + bar1 * uvb_w.x + bar2 * uvc_w.x;
+                    float v_interp = bar0 * uva_w.y + bar1 * uvb_w.y + bar2 * uvc_w.y;
+
+                    float final_u = u_interp / inv_w_interp;
+                    float final_v = v_interp / inv_w_interp;
+
+                    baseColor = tex->sample(final_u, final_v);
+                } else {
+                    baseColor = color;
+                }
+
+                unsigned char r = (unsigned char)(((baseColor >> 24) & 0xFF) * shade);
+                unsigned char g = (unsigned char)(((baseColor >> 16) & 0xFF) * shade);
+                unsigned char b = (unsigned char)(((baseColor >>  8) & 0xFF) * shade);
                 uint32_t shadedColor = (r << 24) | (g << 16) | (b << 8) | 0xFF;
 
                 fb.setPixelDepth(x, y, depth, shadedColor);
@@ -63,7 +83,6 @@ void DrawTriangle(Framebuffer& fb,
 }
 
 void DrawLine(Framebuffer& fb, Vec2 a, Vec2 b, float za, float zb, uint32_t color) {
-    // Bresenham's line algorithm with depth interpolation
     int x0 = (int)a.x, y0 = (int)a.y;
     int x1 = (int)b.x, y1 = (int)b.y;
 
@@ -78,8 +97,6 @@ void DrawLine(Framebuffer& fb, Vec2 a, Vec2 b, float za, float zb, uint32_t colo
     while (true) {
         float t = (steps > 0) ? (float)step / (float)steps : 0.0f;
         float depth = za + t * (zb - za);
-        // small bias pushes the edge just in front of the triangle fill
-        // to prevent z-fighting without affecting occlusion by other triangles
         fb.setPixelDepth(x0, y0, depth - 0.00005f, color);
         if (x0 == x1 && y0 == y1) break;
         int e2 = 2 * err;
