@@ -555,8 +555,8 @@ void processInput(GLFWwindow *window, float &rotX, float &rotY)
     }
 
     if (xoffset != 0.0f || yoffset != 0.0f) {
-        camera.ProcessMouseMovement(xoffset, yoffset);
-    }
+            camera.ProcessMouseMovement(xoffset, yoffset, false);
+        }
 
     static double lastInputTime = glfwGetTime();
     if (anyKey)

@@ -7,7 +7,6 @@
 #include <vector>
 #include <cmath>
 
-
 enum CameraMovement {
     FORWARD,
     BACKWARD,
@@ -31,7 +30,6 @@ public:
     float movementSpeed;
     float mouseSensitivity;
     float zoom; 
-    
 
     Camera(Vec3 startPosition = Vec3(0.0f, 0.0f, 0.0f), Vec3 startUp = Vec3(0.0f, 1.0f, 0.0f), float startYaw = -90.0f, float startPitch = 0.0f)
         : front(Vec3(0.0f, 0.0f, -1.0f)), movementSpeed(2.5f), mouseSensitivity(0.1f), zoom(45.0f) {
@@ -39,7 +37,7 @@ public:
         worldUp = startUp;
         yaw = startYaw;
         pitch = startPitch;
-        updateCameraVectors();
+        updateCameraVectorsEuler();
     }
 
     Mat4 GetViewMatrix() {
@@ -66,14 +64,22 @@ public:
         xoffset *= mouseSensitivity;
         yoffset *= mouseSensitivity;
 
-        yaw += xoffset;
-        pitch += yoffset;
-
         if (constrainPitch) {
+            yaw += xoffset;
+            pitch += yoffset;
+
             if (pitch > 89.0f) pitch = 89.0f;
             if (pitch < -89.0f) pitch = -89.0f;
+            updateCameraVectorsEuler();
+        } else {
+            front = rotateVector(front, right, yoffset).normalized();
+            up = rotateVector(up, right, yoffset).normalized();
+            
+            front = rotateVector(front, up, -xoffset).normalized();
+            
+            right = front.cross(up).normalized();
+            up = right.cross(front).normalized();
         }
-        updateCameraVectors();
     }
 
     void ProcessMouseScroll(float yoffset) {
@@ -83,7 +89,22 @@ public:
     }
 
 private:
-    void updateCameraVectors() {
+    Vec3 rotateVector(Vec3 v, Vec3 axis, float angleDegrees) {
+        float angle = angleDegrees * (float)(M_PI / 180.0);
+        float c = cosf(angle);
+        float s = sinf(angle);
+        
+        Vec3 crossProduct = axis.cross(v);
+        float dotProduct = axis.x * v.x + axis.y * v.y + axis.z * v.z;
+        
+        Vec3 result;
+        result.x = v.x * c + crossProduct.x * s + axis.x * dotProduct * (1.0f - c);
+        result.y = v.y * c + crossProduct.y * s + axis.y * dotProduct * (1.0f - c);
+        result.z = v.z * c + crossProduct.z * s + axis.z * dotProduct * (1.0f - c);
+        return result;
+    }
+
+    void updateCameraVectorsEuler() {
         Vec3 newFront;
         newFront.x = cosf(yaw * (float)(M_PI / 180.0)) * cosf(pitch * (float)(M_PI / 180.0));
         newFront.y = sinf(pitch * (float)(M_PI / 180.0));
@@ -95,5 +116,4 @@ private:
     }
 };
 
-#endif 
-
+#endif
