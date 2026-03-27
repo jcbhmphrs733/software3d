@@ -11,7 +11,9 @@ void DrawTriangle(Framebuffer& fb,
                   float za, float zb, float zc,
                   uint32_t color, float depthFalloff,
                   float depthMin, float depthMax,
-                  float lightIntensity, float ambientStrength, bool useDiffuse) {
+                  float lightIntensity, float ambientStrength, bool useDiffuse,
+                  const Texture* tex,
+                  Vec2 uva, Vec2 uvb, Vec2 uvc) {
     int minX = (int)std::max(0.0f,                      std::min({a.x, b.x, c.x}));
     int minY = (int)std::max(0.0f,                      std::min({a.y, b.y, c.y}));
     int maxX = (int)std::min((float)fb.getWidth()  - 1, std::max({a.x, b.x, c.x}));
@@ -51,9 +53,20 @@ void DrawTriangle(Framebuffer& fb,
                     shade = 1.0f - normalizedDepth * depthFalloff;
                     if (shade < 0.0f) shade = 0.0f;
                 }
-                unsigned char r = (unsigned char)(((color >> 24) & 0xFF) * shade);
-                unsigned char g = (unsigned char)(((color >> 16) & 0xFF) * shade);
-                unsigned char b = (unsigned char)(((color >>  8) & 0xFF) * shade);
+
+                // if a texture is bound, interpolate UV and sample it; otherwise use flat color
+                uint32_t baseColor;
+                if (tex) {
+                    float u = bar0 * uva.x + bar1 * uvb.x + bar2 * uvc.x;
+                    float v = bar0 * uva.y + bar1 * uvb.y + bar2 * uvc.y;
+                    baseColor = tex->sample(u, v);
+                } else {
+                    baseColor = color;
+                }
+
+                unsigned char r = (unsigned char)(((baseColor >> 24) & 0xFF) * shade);
+                unsigned char g = (unsigned char)(((baseColor >> 16) & 0xFF) * shade);
+                unsigned char b = (unsigned char)(((baseColor >>  8) & 0xFF) * shade);
                 uint32_t shadedColor = (r << 24) | (g << 16) | (b << 8) | 0xFF;
 
                 fb.setPixelDepth(x, y, depth, shadedColor);
@@ -61,7 +74,6 @@ void DrawTriangle(Framebuffer& fb,
         }
     }
 }
-
 void DrawLine(Framebuffer& fb, Vec2 a, Vec2 b, float za, float zb, uint32_t color) {
     // Bresenham's line algorithm with depth interpolation
     int x0 = (int)a.x, y0 = (int)a.y;

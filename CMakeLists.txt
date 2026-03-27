@@ -17,6 +17,7 @@ add_executable(software3d
     src/framebuffer.cpp
     src/rasterizer.cpp
     src/RecentFilesManager.cpp
+    src/texture.cpp
     ${MATH_SOURCES}
     ${MESH_SOURCES}
     ${IMGUI_SOURCES}
@@ -26,6 +27,7 @@ target_include_directories(software3d PRIVATE
     include
     include/ui
     include/nfd
+    src
 )
 
 if(WIN32)

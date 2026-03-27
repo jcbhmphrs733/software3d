@@ -178,6 +178,11 @@ void UpdateQuadVertices(int windowWidth)
 }
 void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
 {
+    Texture tex;
+    bool useTexture = false;
+    bool texLoaded = tex.load("assets/textures/test.png");
+    if (!texLoaded)
+    std::cerr << "Warning: texture failed to load\n";
     float rotX = 0.0f, rotY = 0.0f;
 
     std::vector<unsigned int> indices = mesh.indices;
@@ -298,10 +303,19 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
                     lightIntensity = (d > 0.0f) ? d : 0.0f;
                 }
 
+                              Vec2 uva, uvb, uvc;
+                if (useTexture && texLoaded && i < currentMesh.uvIndices.size()) {
+                    uva = currentMesh.uvs[currentMesh.uvIndices[i]];
+                    uvb = currentMesh.uvs[currentMesh.uvIndices[i + 1]];
+                    uvc = currentMesh.uvs[currentMesh.uvIndices[i + 2]];
+                }
+
                 DrawTriangle(*fb, a, b, c,
                     screenDepths[i0], screenDepths[i1], screenDepths[i2],
                     color, depthFalloff, depthMin, depthMax,
-                    lightIntensity, ambientStrength, useDiffuse);
+                    lightIntensity, ambientStrength, useDiffuse,
+                    (useTexture && texLoaded) ? &tex : nullptr,
+                    uva, uvb, uvc);
             }
 
             for (size_t i = 0; i < indices.size(); i += 3) {
@@ -342,6 +356,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
         ImGui::Spacing();
         ImGui::Text("Shading");
         ImGui::Separator();
+        ImGui::Checkbox("Use Texture", &useTexture);
         ImGui::ColorEdit3("Color", meshColor);
         ImGui::Checkbox("Diffuse Lighting", &useDiffuse);
         if (useDiffuse) {
