@@ -14,8 +14,10 @@ void DrawTriangle(Framebuffer& fb,
                   uint32_t color, float depthFalloff,
                   float depthMin, float depthMax,
                   float lightIntensity, float ambientStrength, bool useDiffuse,
-                  const Texture* tex = nullptr,
-                  Vec2 uva = Vec2(0,0), Vec2 uvb = Vec2(0,0), Vec2 uvc = Vec2(0,0));
+                  const Texture* tex,
+                  Vec2 uva, Vec2 uvb, Vec2 uvc,
+                  float wa, float wb, float wc);
+                  
 
 // draws a line between two screen positions with depth testing
 void DrawLine(Framebuffer& fb, Vec2 a, Vec2 b, float za, float zb, uint32_t color);
