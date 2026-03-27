@@ -186,8 +186,31 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
 
     Mesh currentMesh = mesh;
 
-    float meshColor[3]  = { 0.2f, 0.6f, 1.0f }; 
-    float depthFalloff  = 1.0f;                  
+    // UI-controlled shading parameters
+    float meshColor[3]      = { 0.2f, 0.6f, 1.0f }; // base RGB in [0,1]
+    float depthFalloff      = 1.0f;                  // 0 = flat, higher = darker at distance
+
+    // Lighting parameters
+    bool  useDiffuse        = true;
+    float lightAzimuth      = 45.0f;   // degrees, horizontal rotation around Y axis
+    float lightElevation    = 45.0f;   // degrees above the horizon
+    float ambientStrength   = 0.2f;    // minimum brightness [0,1]
+
+    // Computes one unit face normal per triangle and stores in m.faceNormals.
+    // For triangle (A,B,C): e1=B-A, e2=C-A, normal=normalize(cross(e1,e2)).
+    auto computeFaceNormals = [](Mesh& m) {
+        size_t faceCount = m.indices.size() / 3;
+        m.faceNormals.resize(faceCount);
+        for (size_t f = 0; f < faceCount; ++f) {
+            Vec3 A = m.vertices[m.indices[f * 3]];
+            Vec3 B = m.vertices[m.indices[f * 3 + 1]];
+            Vec3 C = m.vertices[m.indices[f * 3 + 2]];
+            Vec3 e1 = B - A;
+            Vec3 e2 = C - A;
+            m.faceNormals[f] = e1.cross(e2).normalized();
+        }
+    };
+    computeFaceNormals(currentMesh);
 
     std::string loadedFilePath;
     ObjLoader loader;
@@ -251,14 +274,34 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
                            | ((unsigned char)(meshColor[2] * 255) <<  8)
                            | 0xFF;
 
+            // Build light direction from GUI azimuth/elevation angles
+            float az = lightAzimuth   * (3.14159265f / 180.0f);
+            float el = lightElevation * (3.14159265f / 180.0f);
+            Vec3 lightDir = Vec3(cosf(el) * sinf(az), sinf(el), cosf(el) * cosf(az)).normalized();
+
+            // Pass 1: fills
             for (size_t i = 0; i < indices.size(); i += 3) {
                 unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
                 Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
                 float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
                 if (area >= 0.0f) continue;
+
+                // Diffuse: rotate face normal by model matrix (w=0 suppresses translation),
+                // then dot with light direction to get per-triangle brightness.
+                float lightIntensity = 0.0f;
+                size_t faceIdx = i / 3;
+                if (useDiffuse && faceIdx < currentMesh.faceNormals.size()) {
+                    Vec3& objNormal = currentMesh.faceNormals[faceIdx];
+                    Vec4  tn = model * Vec4(objNormal.x, objNormal.y, objNormal.z, 0.0f);
+                    Vec3  worldNormal = Vec3(tn.x, tn.y, tn.z).normalized();
+                    float d = worldNormal.dot(lightDir);
+                    lightIntensity = (d > 0.0f) ? d : 0.0f;
+                }
+
                 DrawTriangle(*fb, a, b, c,
                     screenDepths[i0], screenDepths[i1], screenDepths[i2],
-                    color, depthFalloff, depthMin, depthMax);
+                    color, depthFalloff, depthMin, depthMax,
+                    lightIntensity, ambientStrength, useDiffuse);
             }
 
             for (size_t i = 0; i < indices.size(); i += 3) {
@@ -300,7 +343,14 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
         ImGui::Text("Shading");
         ImGui::Separator();
         ImGui::ColorEdit3("Color", meshColor);
-        ImGui::SliderFloat("Depth Falloff", &depthFalloff, 0.0f, 2.0f);
+        ImGui::Checkbox("Diffuse Lighting", &useDiffuse);
+        if (useDiffuse) {
+            ImGui::SliderFloat("Azimuth",   &lightAzimuth,    0.0f, 360.0f);
+            ImGui::SliderFloat("Elevation", &lightElevation, -90.0f,  90.0f);
+            ImGui::SliderFloat("Ambient",   &ambientStrength,  0.0f,   1.0f);
+        } else {
+            ImGui::SliderFloat("Depth Falloff", &depthFalloff, 0.0f, 2.0f);
+        }
 
         ImGui::Spacing();
         ImGui::Text("OBJ Loader");
@@ -330,6 +380,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
 
                 recentFilesManager.Add(loadedFilePath);
                 currentMesh = loader.load(loadedFilePath);
+                computeFaceNormals(currentMesh);
                 indices     = currentMesh.indices;
                 screenVerts.resize(currentMesh.vertices.size());
                 screenDepths.resize(currentMesh.vertices.size());
@@ -353,6 +404,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
                 {
                     loadedFilePath = filepath;
                     currentMesh = loader.load(loadedFilePath);
+                    computeFaceNormals(currentMesh);
                     indices     = currentMesh.indices;
                     screenVerts.resize(currentMesh.vertices.size());
                     screenDepths.resize(currentMesh.vertices.size());
