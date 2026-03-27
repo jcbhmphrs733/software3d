@@ -5,4 +5,5 @@
 struct Mesh {
     std::vector<Vec3> vertices;          // 3D positions parsed from 'v' lines
     std::vector<unsigned int> indices;   // vertex indices parsed from 'f' lines, 3 per triangle
+    std::vector<Vec3> faceNormals;       // one world-space normal per triangle, computed after load
 };

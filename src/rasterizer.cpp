@@ -10,7 +10,8 @@ void DrawTriangle(Framebuffer& fb,
                   Vec2 a, Vec2 b, Vec2 c,
                   float za, float zb, float zc,
                   uint32_t color, float depthFalloff,
-                  float depthMin, float depthMax) {
+                  float depthMin, float depthMax,
+                  float lightIntensity, float ambientStrength, bool useDiffuse) {
     int minX = (int)std::max(0.0f,                      std::min({a.x, b.x, c.x}));
     int minY = (int)std::max(0.0f,                      std::min({a.y, b.y, c.y}));
     int maxX = (int)std::min((float)fb.getWidth()  - 1, std::max({a.x, b.x, c.x}));
@@ -38,13 +39,18 @@ void DrawTriangle(Framebuffer& fb,
             if (bar0 >= 0.0f && bar1 >= 0.0f && bar2 >= 0.0f) {
                 float depth = bar0 * za + bar1 * zb + bar2 * zc;
 
-                // normalize depth to [0,1] within the scene's actual depth range
-                // so shading has full contrast regardless of frustum size
-                float range = depthMax - depthMin;
-                float normalizedDepth = (range > 0.0f) ? (depth - depthMin) / range : 0.0f;
-
-                float shade = 1.0f - normalizedDepth * depthFalloff;
-                if (shade < 0.0f) shade = 0.0f;
+                float shade;
+                if (useDiffuse) {
+                    // diffuse: ambient + light contribution, constant across the triangle
+                    shade = ambientStrength + (1.0f - ambientStrength) * lightIntensity;
+                    if (shade > 1.0f) shade = 1.0f;
+                } else {
+                    // depth-falloff: darker pixels are further from the camera
+                    float range = depthMax - depthMin;
+                    float normalizedDepth = (range > 0.0f) ? (depth - depthMin) / range : 0.0f;
+                    shade = 1.0f - normalizedDepth * depthFalloff;
+                    if (shade < 0.0f) shade = 0.0f;
+                }
                 unsigned char r = (unsigned char)(((color >> 24) & 0xFF) * shade);
                 unsigned char g = (unsigned char)(((color >> 16) & 0xFF) * shade);
                 unsigned char b = (unsigned char)(((color >>  8) & 0xFF) * shade);
