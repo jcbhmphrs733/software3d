@@ -364,6 +364,12 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
             }
         }
 
+        if (ImGui::Button("Clear Recent Files", ImVec2(-1, 0)))
+        {
+            recentFilesManager.Clear();
+            recentFilesManager.Save();
+        }
+
         // Mesh Stats
         ImGui::Spacing();
         ImGui::Text("Mesh Stats:");

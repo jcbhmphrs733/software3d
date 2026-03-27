@@ -18,4 +18,6 @@ public:
 
     const std::vector<std::string> &GetFiles() const { return files; }
     bool IsEmpty() const { return files.empty(); }
+
+    void Clear();
 };
