@@ -22,11 +22,14 @@
 #include "nfd.h"
 #include "nfd_glfw3.h"
 #include "RecentFilesManager.h"
+#include "camera.h"
 
 // Forward declarations
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void processInput(GLFWwindow *window, float &rotX, float &rotY);
-void UpdateQuadVertices(int windowWidth); // must be declared before framebuffer_size_callback uses it
+void UpdateQuadVertices(int windowWidth); 
+void mouse_callback(GLFWwindow* window, double xposIn, double yposIn);
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 
 const int VIEWPORT_WIDTH = 800;
 const int VIEWPORT_HEIGHT = 600;
@@ -42,6 +45,13 @@ GLuint shaderProgram, VAO, VBO, EBO, textureID;
 Framebuffer *fb = nullptr;
 bool wireframeOnly = false;
 FpsTracker tracker;
+
+Camera camera(Vec3(0.0f, 0.0f, 3.0f));
+float deltaTime = 0.0f;
+float lastFrameTime = 0.0f;
+bool firstMouse = true;
+float lastX = WINDOW_WIDTH / 2.0f;
+float lastY = WINDOW_HEIGHT / 2.0f;
 
 // Recent files manager global variable
 RecentFilesManager recentFilesManager;
@@ -83,6 +93,7 @@ GLFWwindow *InitializeWindow()
 
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    glfwSetScrollCallback(window, scroll_callback);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
@@ -134,7 +145,6 @@ void SetupResources()
     glBindVertexArray(VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    // GL_DYNAMIC_DRAW — tells the GPU this buffer will be updated frequently (on every resize)
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_DYNAMIC_DRAW);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
@@ -166,20 +176,47 @@ void UpdateQuadVertices(int windowWidth)
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
 }
-
-void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const Mat4 &projection)
+void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
 {
+    Texture tex;
+    bool useTexture = false;
+    bool texLoaded = tex.load("assets/textures/metal.jpg");
+    if (!texLoaded)
+    std::cerr << "Warning: texture failed to load\n";
     float rotX = 0.0f, rotY = 0.0f;
 
     std::vector<unsigned int> indices = mesh.indices;
-    std::vector<Vec2> screenVerts(mesh.vertices.size());
-    std::vector<float> screenDepths(mesh.vertices.size());
+    std::vector<Vec2>         screenVerts(mesh.vertices.size());
+    std::vector<float>        screenDepths(mesh.vertices.size());
+    std::vector<float>        clipWs(mesh.vertices.size());
 
     Mesh currentMesh = mesh;
 
     // UI-controlled shading parameters
-    float meshColor[3] = {0.2f, 0.6f, 1.0f}; // base RGB in [0,1]
-    float depthFalloff = 1.0f;               // 0 = flat, higher = darker at distance
+    float meshColor[3]      = { 0.2f, 0.6f, 1.0f }; // base RGB in [0,1]
+    float depthFalloff      = 1.0f;                  // 0 = flat, higher = darker at distance
+
+    // Lighting parameters
+    bool  useDiffuse        = true;
+    float lightAzimuth      = 45.0f;   // degrees, horizontal rotation around Y axis
+    float lightElevation    = 45.0f;   // degrees above the horizon
+    float ambientStrength   = 0.2f;    // minimum brightness [0,1]
+
+    // Computes one unit face normal per triangle and stores in m.faceNormals.
+    // For triangle (A,B,C): e1=B-A, e2=C-A, normal=normalize(cross(e1,e2)).
+    auto computeFaceNormals = [](Mesh& m) {
+        size_t faceCount = m.indices.size() / 3;
+        m.faceNormals.resize(faceCount);
+        for (size_t f = 0; f < faceCount; ++f) {
+            Vec3 A = m.vertices[m.indices[f * 3]];
+            Vec3 B = m.vertices[m.indices[f * 3 + 1]];
+            Vec3 C = m.vertices[m.indices[f * 3 + 2]];
+            Vec3 e1 = B - A;
+            Vec3 e2 = C - A;
+            m.faceNormals[f] = e1.cross(e2).normalized();
+        }
+    };
+    computeFaceNormals(currentMesh);
 
     std::string loadedFilePath;
     ObjLoader loader;
@@ -193,14 +230,21 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
 
         processInput(window, rotX, rotY);
 
+        float currentFrameTime = glfwGetTime();
+        deltaTime = currentFrameTime - lastFrameTime;
+        lastFrameTime = currentFrameTime;
+
         fb->clear(0x000000FF);
         fb->clearDepth();
 
+        Mat4 view = camera.GetViewMatrix();
+        Mat4 projection = Mat4::perspective(camera.zoom * 3.14159f / 180.0f, (float)VIEWPORT_WIDTH / (float)VIEWPORT_HEIGHT, 0.1f, 100.0f);
         Mat4 model = rotateY(rotY) * rotateX(rotX);
         Mat4 MVP = projection * view * model;
 
         screenVerts.resize(currentMesh.vertices.size());
         screenDepths.resize(currentMesh.vertices.size());
+        clipWs.resize(currentMesh.vertices.size());
 
         for (size_t i = 0; i < currentMesh.vertices.size(); ++i)
         {
@@ -211,25 +255,17 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
                 (ndc.x + 1.0f) / 2.0f * VIEWPORT_WIDTH,
                 (1.0f - ndc.y) / 2.0f * VIEWPORT_HEIGHT);
             screenDepths[i] = (ndc.z + 1.0f) / 2.0f;
+            clipWs[i] = clip.w;
         }
 
-        if (wireframeOnly)
-        {
-            // Wireframe mode: draw every edge with no culling so the full mesh is visible
-            for (size_t i = 0; i < indices.size(); i += 3)
-            {
-                unsigned int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
+        if (wireframeOnly) {
+            for (size_t i = 0; i < indices.size(); i += 3) {
+                unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
                 DrawLine(*fb, screenVerts[i0], screenVerts[i1], screenDepths[i0], screenDepths[i1], 0xFFFFFFFF);
                 DrawLine(*fb, screenVerts[i1], screenVerts[i2], screenDepths[i1], screenDepths[i2], 0xFFFFFFFF);
                 DrawLine(*fb, screenVerts[i2], screenVerts[i0], screenDepths[i2], screenDepths[i0], 0xFFFFFFFF);
             }
-        }
-        else
-        {
-            // Solid mode — two passes:
-            // Pass 1: fill all front-facing triangles (builds the full depth buffer)
-            // Pass 2: draw edges after, so they depth-test against every filled triangle
-
+        } else {
             float depthMin = std::numeric_limits<float>::max();
             float depthMax = std::numeric_limits<float>::lowest();
             for (size_t i = 0; i < indices.size(); i += 3)
@@ -245,24 +281,49 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
 
             uint32_t color = ((unsigned char)(meshColor[0] * 255) << 24) | ((unsigned char)(meshColor[1] * 255) << 16) | ((unsigned char)(meshColor[2] * 255) << 8) | 0xFF;
 
+            // Build light direction from GUI azimuth/elevation angles
+            float az = lightAzimuth   * (3.14159265f / 180.0f);
+            float el = lightElevation * (3.14159265f / 180.0f);
+            Vec3 lightDir = Vec3(cosf(el) * sinf(az), sinf(el), cosf(el) * cosf(az)).normalized();
+
             // Pass 1: fills
             for (size_t i = 0; i < indices.size(); i += 3)
             {
                 unsigned int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
                 Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
                 float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-                if (area >= 0.0f)
-                    continue;
+                if (area >= 0.0f) continue;
+
+                // Diffuse: rotate face normal by model matrix (w=0 suppresses translation),
+                // then dot with light direction to get per-triangle brightness.
+                float lightIntensity = 0.0f;
+                size_t faceIdx = i / 3;
+                if (useDiffuse && faceIdx < currentMesh.faceNormals.size()) {
+                    Vec3& objNormal = currentMesh.faceNormals[faceIdx];
+                    Vec4  tn = model * Vec4(objNormal.x, objNormal.y, objNormal.z, 0.0f);
+                    Vec3  worldNormal = Vec3(tn.x, tn.y, tn.z).normalized();
+                    float d = worldNormal.dot(lightDir);
+                    lightIntensity = (d > 0.0f) ? d : 0.0f;
+                }
+
+                              Vec2 uva, uvb, uvc;
+                if (useTexture && texLoaded && i < currentMesh.uvIndices.size()) {
+                    uva = currentMesh.uvs[currentMesh.uvIndices[i]];
+                    uvb = currentMesh.uvs[currentMesh.uvIndices[i + 1]];
+                    uvc = currentMesh.uvs[currentMesh.uvIndices[i + 2]];
+                }
+
                 DrawTriangle(*fb, a, b, c,
-                             screenDepths[i0], screenDepths[i1], screenDepths[i2],
-                             color, depthFalloff, depthMin, depthMax);
+                    screenDepths[i0], screenDepths[i1], screenDepths[i2],
+                    color, depthFalloff, depthMin, depthMax,
+                    lightIntensity, ambientStrength, useDiffuse,
+                    (useTexture && texLoaded) ? &tex : nullptr,
+                    uva, uvb, uvc,
+                    clipWs[i0], clipWs[i1], clipWs[i2]);
             }
 
-            // Pass 2: edges — depth buffer is fully populated so edges correctly
-            // occlude behind closer triangles; tiny bias beats same-triangle float noise
-            for (size_t i = 0; i < indices.size(); i += 3)
-            {
-                unsigned int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
+            for (size_t i = 0; i < indices.size(); i += 3) {
+                unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
                 Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
                 float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
                 if (area >= 0.0f)
@@ -283,7 +344,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
-        // ImGui panel — pinned to right edge, tracks currentWindowWidth/Height
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
@@ -301,8 +361,16 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
         ImGui::Spacing();
         ImGui::Text("Shading");
         ImGui::Separator();
+        ImGui::Checkbox("Use Texture", &useTexture);
         ImGui::ColorEdit3("Color", meshColor);
-        ImGui::SliderFloat("Depth Falloff", &depthFalloff, 0.0f, 2.0f);
+        ImGui::Checkbox("Diffuse Lighting", &useDiffuse);
+        if (useDiffuse) {
+            ImGui::SliderFloat("Azimuth",   &lightAzimuth,    0.0f, 360.0f);
+            ImGui::SliderFloat("Elevation", &lightElevation, -90.0f,  90.0f);
+            ImGui::SliderFloat("Ambient",   &ambientStrength,  0.0f,   1.0f);
+        } else {
+            ImGui::SliderFloat("Depth Falloff", &depthFalloff, 0.0f, 2.0f);
+        }
 
         ImGui::Spacing();
         ImGui::Text("OBJ Loader");
@@ -333,13 +401,13 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
 
                 recentFilesManager.Add(loadedFilePath);
                 currentMesh = loader.load(loadedFilePath);
-                indices = currentMesh.indices;
+                computeFaceNormals(currentMesh);
+                indices     = currentMesh.indices;
                 screenVerts.resize(currentMesh.vertices.size());
                 screenDepths.resize(currentMesh.vertices.size());
                 rotX = rotY = 0.0f;
             }
         }
-        // Adding recent files to the panel
         ImGui::Spacing();
         ImGui::Text("Recent Files");
         ImGui::Separator();
@@ -350,18 +418,21 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
         }
         else
         {
-            for (const auto &filepath : recentFilesManager.GetFiles())
+        for (const auto &filepath : recentFilesManager.GetFiles())
+        {
+            if (ImGui::Button(std::filesystem::path(filepath).filename().string().c_str()))
             {
-                if (ImGui::Button(std::filesystem::path(filepath).filename().string().c_str()))
-                {
-                    loadedFilePath = filepath;
-                    currentMesh = loader.load(loadedFilePath);
-                    indices = currentMesh.indices;
-                    screenVerts.resize(currentMesh.vertices.size());
-                    screenDepths.resize(currentMesh.vertices.size());
-                    rotX = rotY = 0.0f;
-                }
+                loadedFilePath = filepath;
+                currentMesh = loader.load(loadedFilePath);
+
+                computeFaceNormals(currentMesh);
+                
+                indices = currentMesh.indices;
+                screenVerts.resize(currentMesh.vertices.size());
+                screenDepths.resize(currentMesh.vertices.size());
+                rotX = rotY = 0.0f;
             }
+        }
         }
 
         if (ImGui::Button("Clear Recent Files", ImVec2(-1, 0)))
@@ -375,10 +446,9 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
         ImGui::Text("Mesh Stats:");
         ImGui::Separator();
         {
-            size_t faceCount = currentMesh.indices.size() / 3;
-            size_t vertCount = currentMesh.vertices.size();
-            // For a closed manifold mesh edges = 3*faces/2; for open meshes this is an upper bound
-            size_t edgeCount = faceCount * 3 / 2;
+            size_t faceCount   = currentMesh.indices.size() / 3;
+            size_t vertCount   = currentMesh.vertices.size();
+            size_t edgeCount   = faceCount * 3 / 2;
 
             ImGui::Text("Verts:    %zu", vertCount);
             ImGui::Text("Faces:    %zu", faceCount);
@@ -408,7 +478,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
         glfwPollEvents();
     }
 }
-
 void Cleanup(GLFWwindow *window)
 {
     // Save Recent Files on Exit
@@ -431,42 +500,45 @@ void Cleanup(GLFWwindow *window)
     glfwTerminate();
 }
 
+
 int main()
 {
     ObjLoader loader;
-
-    std::string loadedFilePath;
-
-    Mesh mesh;
-
-    if (!recentFilesManager.IsEmpty())
-    {
-        loadedFilePath = recentFilesManager.GetFiles()[0];
-        mesh = loader.load(loadedFilePath);
-    }
-    else
-    {
-        mesh = loader.load("assets/models/monkey.obj"); // Default
-    }
-    // Mesh mesh = loader.load("assets/models/monkey.obj");
-
-    Mat4 view = Mat4::lookAt(
-        Vec3(0.0f, 0.0f, 5.0f),
-        Vec3(0.0f, 0.0f, 0.0f),
-        Vec3(0.0f, 1.0f, 0.0f));
-    Mat4 projection = Mat4::perspective(
-        3.14159f / 4.0f,
-        (float)VIEWPORT_WIDTH / (float)VIEWPORT_HEIGHT,
-        0.1f, 100.0f);
-
+    Mesh mesh = loader.load("assets/models/monkey.obj");
+    
     GLFWwindow *window = InitializeWindow();
     if (!window)
         return -1;
 
     SetupResources();
-    RunRenderLoop(window, mesh, view, projection);
+    RunRenderLoop(window, mesh);
     Cleanup(window);
+
+    recentFilesManager.Save();
     return 0;
+}
+
+void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
+    float xpos = static_cast<float>(xposIn);
+    float ypos = static_cast<float>(yposIn);
+
+    if (firstMouse) {
+        lastX = xpos;
+        lastY = ypos;
+        firstMouse = false;
+    }
+
+    float xoffset = xpos - lastX;
+    float yoffset = lastY - ypos; 
+
+    lastX = xpos;
+    lastY = ypos;
+
+    camera.ProcessMouseMovement(xoffset, yoffset);
+}
+
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    camera.ProcessMouseScroll(static_cast<float>(yoffset));
 }
 
 void processInput(GLFWwindow *window, float &rotX, float &rotY)
@@ -476,27 +548,101 @@ void processInput(GLFWwindow *window, float &rotX, float &rotY)
 
     const float speed = 0.75f;
     bool anyKey = false;
+    
+    float xoffset = 0.0f;
+    float yoffset = 0.0f;
 
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
-    {
-        rotX -= speed;
+    static bool xWasPressed = false;
+    static bool cameraMode = true;
+    bool xIsPressed = glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS;
+    
+    if (xIsPressed && !xWasPressed) {
+        cameraMode = !cameraMode;
+    }
+    xWasPressed = xIsPressed;
+
+    if (cameraMode) {
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+            camera.ProcessKeyboard(LEFT, deltaTime);
+            anyKey = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+            camera.ProcessKeyboard(RIGHT, deltaTime);
+            anyKey = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+            camera.ProcessKeyboard(UP, deltaTime);
+            anyKey = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+            camera.ProcessKeyboard(DOWN, deltaTime);
+            anyKey = true;
+        }
+        
+        if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
+            xoffset += speed * 5.0f;
+            anyKey = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
+            xoffset -= speed * 5.0f;
+            anyKey = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
+            yoffset += speed * 5.0f;
+            anyKey = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
+            yoffset -= speed * 5.0f;
+            anyKey = true;
+        }
+    } else {
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+            rotY -= speed;
+            anyKey = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+            rotY += speed;
+            anyKey = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+            rotX -= speed;
+            anyKey = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+            rotX += speed;
+            anyKey = true;
+        }
+        
+        if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
+            rotY += speed;
+            anyKey = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
+            rotY -= speed;
+            anyKey = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
+            rotX -= speed;
+            anyKey = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
+            rotX += speed;
+            anyKey = true;
+        }
+    }
+
+    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
+        camera.ProcessKeyboard(FORWARD, deltaTime);
         anyKey = true;
     }
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
-    {
-        rotX += speed;
+    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
+        camera.ProcessKeyboard(BACKWARD, deltaTime);
         anyKey = true;
     }
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
-    {
-        rotY -= speed;
-        anyKey = true;
-    }
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
-    {
-        rotY += speed;
-        anyKey = true;
-    }
+
+    if (xoffset != 0.0f || yoffset != 0.0f) {
+            camera.ProcessMouseMovement(xoffset, yoffset, false);
+        }
 
     static double lastInputTime = glfwGetTime();
     if (anyKey)
