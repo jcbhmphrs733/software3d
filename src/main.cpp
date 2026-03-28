@@ -318,14 +318,15 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
         {
             nfdu8char_t *outPath = nullptr;
             nfdfilteritem_t filters[] = {{"OBJ Files", "obj"}};
-            nfdwindowhandle_t parentHandle;
+            nfdwindowhandle_t parentHandle = {};
             NFD_GetNativeWindowFromGLFWWindow(window, &parentHandle);
             nfdopendialogu8args_t args = {};
             args.filterList = filters;
             args.filterCount = 1;
             args.parentWindow = parentHandle;
 
-            if (NFD_OpenDialogU8_With(&outPath, &args) == NFD_OKAY)
+            nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
+            if (result == NFD_OKAY)
             {
                 loadedFilePath = outPath;
                 NFD_FreePathU8(outPath);
@@ -338,7 +339,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, const Mat4 &view, const
                 rotX = rotY = 0.0f;
             }
         }
-
         // Adding recent files to the panel
         ImGui::Spacing();
         ImGui::Text("Recent Files");
