@@ -3,6 +3,9 @@ project(software3d)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(APPLE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexperimental-library")
+endif()
 
 find_package(glfw3 3.3 REQUIRED)
 find_package(OpenGL REQUIRED)

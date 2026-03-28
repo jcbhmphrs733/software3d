@@ -268,19 +268,18 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
         } else {
             float depthMin = std::numeric_limits<float>::max();
             float depthMax = std::numeric_limits<float>::lowest();
-            for (size_t i = 0; i < indices.size(); i += 3) {
-                unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+            for (size_t i = 0; i < indices.size(); i += 3)
+            {
+                unsigned int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
                 Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
                 float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-                if (area >= 0.0f) continue;
+                if (area >= 0.0f)
+                    continue;
                 depthMin = std::min(depthMin, std::min({screenDepths[i0], screenDepths[i1], screenDepths[i2]}));
                 depthMax = std::max(depthMax, std::max({screenDepths[i0], screenDepths[i1], screenDepths[i2]}));
             }
 
-            uint32_t color = ((unsigned char)(meshColor[0] * 255) << 24)
-                           | ((unsigned char)(meshColor[1] * 255) << 16)
-                           | ((unsigned char)(meshColor[2] * 255) <<  8)
-                           | 0xFF;
+            uint32_t color = ((unsigned char)(meshColor[0] * 255) << 24) | ((unsigned char)(meshColor[1] * 255) << 16) | ((unsigned char)(meshColor[2] * 255) << 8) | 0xFF;
 
             // Build light direction from GUI azimuth/elevation angles
             float az = lightAzimuth   * (3.14159265f / 180.0f);
@@ -288,8 +287,9 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
             Vec3 lightDir = Vec3(cosf(el) * sinf(az), sinf(el), cosf(el) * cosf(az)).normalized();
 
             // Pass 1: fills
-            for (size_t i = 0; i < indices.size(); i += 3) {
-                unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
+            for (size_t i = 0; i < indices.size(); i += 3)
+            {
+                unsigned int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
                 Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
                 float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
                 if (area >= 0.0f) continue;
@@ -326,7 +326,8 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
                 unsigned int i0 = indices[i], i1 = indices[i+1], i2 = indices[i+2];
                 Vec2 a = screenVerts[i0], b = screenVerts[i1], c = screenVerts[i2];
                 float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-                if (area >= 0.0f) continue;
+                if (area >= 0.0f)
+                    continue;
                 DrawLine(*fb, a, b, screenDepths[i0], screenDepths[i1], 0x000000FF);
                 DrawLine(*fb, b, c, screenDepths[i1], screenDepths[i2], 0x000000FF);
                 DrawLine(*fb, c, a, screenDepths[i2], screenDepths[i0], 0x000000FF);
@@ -385,14 +386,15 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
         {
             nfdu8char_t *outPath = nullptr;
             nfdfilteritem_t filters[] = {{"OBJ Files", "obj"}};
-            nfdwindowhandle_t parentHandle;
+            nfdwindowhandle_t parentHandle = {};
             NFD_GetNativeWindowFromGLFWWindow(window, &parentHandle);
             nfdopendialogu8args_t args = {};
             args.filterList = filters;
             args.filterCount = 1;
             args.parentWindow = parentHandle;
 
-            if (NFD_OpenDialogU8_With(&outPath, &args) == NFD_OKAY)
+            nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
+            if (result == NFD_OKAY)
             {
                 loadedFilePath = outPath;
                 NFD_FreePathU8(outPath);
@@ -406,7 +408,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
                 rotX = rotY = 0.0f;
             }
         }
-
         ImGui::Spacing();
         ImGui::Text("Recent Files");
         ImGui::Separator();
@@ -417,21 +418,30 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
         }
         else
         {
-            for (const auto &filepath : recentFilesManager.GetFiles())
+        for (const auto &filepath : recentFilesManager.GetFiles())
+        {
+            if (ImGui::Button(std::filesystem::path(filepath).filename().string().c_str()))
             {
-                if (ImGui::Button(std::filesystem::path(filepath).filename().string().c_str()))
-                {
-                    loadedFilePath = filepath;
-                    currentMesh = loader.load(loadedFilePath);
-                    computeFaceNormals(currentMesh);
-                    indices     = currentMesh.indices;
-                    screenVerts.resize(currentMesh.vertices.size());
-                    screenDepths.resize(currentMesh.vertices.size());
-                    rotX = rotY = 0.0f;
-                }
+                loadedFilePath = filepath;
+                currentMesh = loader.load(loadedFilePath);
+
+                computeFaceNormals(currentMesh);
+                
+                indices = currentMesh.indices;
+                screenVerts.resize(currentMesh.vertices.size());
+                screenDepths.resize(currentMesh.vertices.size());
+                rotX = rotY = 0.0f;
             }
         }
+        }
 
+        if (ImGui::Button("Clear Recent Files", ImVec2(-1, 0)))
+        {
+            recentFilesManager.Clear();
+            recentFilesManager.Save();
+        }
+
+        // Mesh Stats
         ImGui::Spacing();
         ImGui::Text("Mesh Stats:");
         ImGui::Separator();
@@ -444,10 +454,12 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
             ImGui::Text("Faces:    %zu", faceCount);
             ImGui::Text("Edges:    %zu", edgeCount);
 
-            if (!loadedFilePath.empty()) {
+            if (!loadedFilePath.empty())
+            {
                 std::error_code ec;
                 auto bytes = std::filesystem::file_size(loadedFilePath, ec);
-                if (!ec) {
+                if (!ec)
+                {
                     if (bytes < 1024)
                         ImGui::Text("File size:     %zu B", bytes);
                     else if (bytes < 1024 * 1024)
@@ -468,6 +480,9 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
 }
 void Cleanup(GLFWwindow *window)
 {
+    // Save Recent Files on Exit
+    recentFilesManager.Save();
+
     NFD_Quit();
 
     ImGui_ImplOpenGL3_Shutdown();
