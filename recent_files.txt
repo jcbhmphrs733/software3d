@@ -1,0 +1,4 @@
+C:\Users\tryst\software3d\software3d\assets\models\cube.obj
+C:\Users\tryst\software3d\software3d\assets\models\cube.obj
+C:\Users\tryst\software3d\software3d\assets\models\sphere.obj
+C:\Users\tryst\software3d\software3d\assets\models\donut.obj
