@@ -3,6 +3,9 @@ project(software3d)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(APPLE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexperimental-library")
+endif()
 
 find_package(glfw3 3.3 REQUIRED)
 find_package(OpenGL REQUIRED)
@@ -17,6 +20,8 @@ add_executable(software3d
     src/framebuffer.cpp
     src/rasterizer.cpp
     src/RecentFilesManager.cpp
+    src/AppState.cpp
+    src/texture.cpp
     ${MATH_SOURCES}
     ${MESH_SOURCES}
     ${IMGUI_SOURCES}
@@ -26,6 +31,7 @@ target_include_directories(software3d PRIVATE
     include
     include/ui
     include/nfd
+    src
 )
 
 if(WIN32)

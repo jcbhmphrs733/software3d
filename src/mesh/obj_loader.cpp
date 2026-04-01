@@ -12,7 +12,6 @@ Mesh ObjLoader::load(const std::string& filepath) {
         return mesh;
     }
 
-    // parsing will go here
     std::string line;
     while (std::getline(file, line)) {
         std::istringstream ss(line);
@@ -25,15 +24,30 @@ Mesh ObjLoader::load(const std::string& filepath) {
             ss >> vertex.x >> vertex.y >> vertex.z;
             mesh.vertices.push_back(vertex);
         }
+        else if (keyword == "vt") {
+            // parse a UV coordinate: "vt u v"
+            Vec2 uv;
+            ss >> uv.x >> uv.y;
+            mesh.uvs.push_back(uv);
+        }
         else if (keyword == "f") {
             // parse a face: supports "f v", "f v/vt", "f v//vn", "f v/vt/vn"
-            // OBJ indices are 1-based, we only need the vertex index (before first '/')
             std::vector<unsigned int> faceIndices;
+            std::vector<unsigned int> uvFaceIndices;
             std::string token;
             while (ss >> token) {
-                // take the part before the first '/'
-                unsigned int index = (unsigned int)std::stoi(token.substr(0, token.find('/')));
-                faceIndices.push_back(index - 1); // convert to 0-based
+                // vertex index: part before the first '/'
+                unsigned int vIdx = (unsigned int)std::stoi(token.substr(0, token.find('/')));
+                faceIndices.push_back(vIdx - 1); // convert to 0-based
+
+                // UV index: part between first and second '/'
+                unsigned int uvIdx = 0;
+                size_t firstSlash = token.find('/');
+                if (firstSlash != std::string::npos && firstSlash + 1 < token.size() && token[firstSlash + 1] != '/') {
+                    size_t secondSlash = token.find('/', firstSlash + 1);
+                    uvIdx = (unsigned int)std::stoi(token.substr(firstSlash + 1, secondSlash - firstSlash - 1)) - 1;
+                }
+                uvFaceIndices.push_back(uvIdx);
             }
 
             // triangulate: fan triangulation from first vertex
@@ -42,9 +56,13 @@ Mesh ObjLoader::load(const std::string& filepath) {
                 mesh.indices.push_back(faceIndices[0]);
                 mesh.indices.push_back(faceIndices[i]);
                 mesh.indices.push_back(faceIndices[i + 1]);
+
+                mesh.uvIndices.push_back(uvFaceIndices[0]);
+                mesh.uvIndices.push_back(uvFaceIndices[i]);
+                mesh.uvIndices.push_back(uvFaceIndices[i + 1]);
             }
         }
-        // all other keywords (comments, normals, UVs, etc.) are ignored
+        // all other keywords (comments, normals, etc.) are ignored
     }
 
     return mesh;

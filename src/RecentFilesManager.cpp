@@ -2,39 +2,83 @@
 #include <fstream>
 #include <algorithm>
 
-RecentFilesManager::RecentFilesManager() {
+RecentFilesManager::RecentFilesManager()
+{
     Load();
 }
 
-void RecentFilesManager::Add(const std::string& filepath) {
+void RecentFilesManager::Add(const std::string &filepath)
+{
     // Avoid Duplicates
     auto it = std::find(files.begin(), files.end(), filepath);
-    if (it != files.end()) {
+    if (it != files.end())
+    {
         files.erase(it);
     }
-    
+
     // Add to the front
     files.insert(files.begin(), filepath);
-    
+
     // Limit 5
-    if (files.size() > MAX_FILES) {
+    if (files.size() > MAX_FILES)
+    {
         files.pop_back();
     }
 }
 
-void RecentFilesManager::Load() {
+void RecentFilesManager::Load()
+{
     std::ifstream file(CONFIG_FILE);
+
+    if (!file.is_open())
+        return;
+
+    files.clear();
+
+    // Read the last opened file
+    std::getline(file, lastFile);
+
+    // Read the rest of the files
     std::string line;
-    while (std::getline(file, line) && files.size() < MAX_FILES) {
-        if (!line.empty()) {
+    while (std::getline(file, line) && files.size() < MAX_FILES)
+    {
+        if (!line.empty())
+        {
             files.push_back(line);
         }
     }
 }
 
-void RecentFilesManager::Save() const {
+void RecentFilesManager::Save() const
+{
     std::ofstream file(CONFIG_FILE);
-    for (const auto& filepath : files) {
+
+    if (!file.is_open())
+        return;
+
+    // Save the last opened file at the top
+    file << lastFile << "\n";
+
+    // Save the list
+    for (const auto &filepath : files)
+    {
         file << filepath << "\n";
     }
+}
+
+void RecentFilesManager::Clear()
+{
+    files.clear();
+    lastFile.clear();
+}
+
+void RecentFilesManager::SetLastFile(const std::string &path)
+{
+    lastFile = path;
+    Add(path); // Move it to the top of the recent files list
+}
+
+std::string RecentFilesManager::GetLastFile() const
+{
+    return lastFile;
 }
