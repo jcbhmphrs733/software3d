@@ -413,6 +413,11 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
                 NFD_FreePathU8(outPath);
 
                 recentFilesManager.Add(loadedFilePath);
+
+                // Load the last selected object path from the config file and set it in the RecentFilesManager
+                recentFilesManager.SetLastFile(loadedFilePath);
+                recentFilesManager.Save();
+
                 currentMesh = loader.load(loadedFilePath);
                 computeFaceNormals(currentMesh);
                 indices = currentMesh.indices;
@@ -437,6 +442,10 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
                 {
                     loadedFilePath = filepath;
                     currentMesh = loader.load(loadedFilePath);
+
+                    // Update the last selected file in the RecentFilesManager and save it to the config file
+                    recentFilesManager.SetLastFile(loadedFilePath);
+                    recentFilesManager.Save();
 
                     computeFaceNormals(currentMesh);
 
@@ -521,7 +530,7 @@ int main()
 
     if (!recentFilesManager.IsEmpty())
     {
-        loadedFilePath = recentFilesManager.GetFiles()[0];
+        loadedFilePath = recentFilesManager.GetLastFile();
         mesh = loader.load(loadedFilePath);
     }
     else
