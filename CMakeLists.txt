@@ -20,6 +20,7 @@ add_executable(software3d
     src/framebuffer.cpp
     src/rasterizer.cpp
     src/RecentFilesManager.cpp
+    src/AppState.cpp
     src/texture.cpp
     ${MATH_SOURCES}
     ${MESH_SOURCES}
