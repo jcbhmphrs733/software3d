@@ -197,13 +197,13 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState)
 
     // UI-controlled shading parameters
     float meshColor[3] = {appState.meshColor[0], appState.meshColor[1], appState.meshColor[2]};
-    float depthFalloff = 1.0f; // 0 = flat, higher = darker at distance
+    float depthFalloff = appState.depthFalloff; // 0 = flat, higher = darker at distance
 
     // Lighting parameters
-    bool useDiffuse = true;
-    float lightAzimuth = 45.0f;   // degrees, horizontal rotation around Y axis
-    float lightElevation = 45.0f; // degrees above the horizon
-    float ambientStrength = 0.2f; // minimum brightness [0,1]
+    bool useDiffuse = appState.diffuseLighting;
+    float lightAzimuth = appState.azimuth;            // degrees, horizontal rotation around Y axis
+    float lightElevation = appState.elevation;        // degrees above the horizon
+    float ambientStrength = appState.ambientStrength; // minimum brightness [0,1]
 
     // Computes one unit face normal per triangle and stores in m.faceNormals.
     // For triangle (A,B,C): e1=B-A, e2=C-A, normal=normalize(cross(e1,e2)).
@@ -506,6 +506,11 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState)
         appState.useTexture = useTexture;
         appState.rotX = rotX;
         appState.rotY = rotY;
+        appState.azimuth = lightAzimuth;
+        appState.elevation = lightElevation;
+        appState.ambientStrength = ambientStrength;
+        appState.diffuseLighting = useDiffuse;
+        appState.depthFalloff = depthFalloff;
 
         glfwSwapBuffers(window);
         glfwPollEvents();

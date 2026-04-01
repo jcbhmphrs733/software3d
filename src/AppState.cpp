@@ -19,6 +19,18 @@ void AppState::Save() const
 
     // save rotation
     file << rotX << " " << rotY << std::endl;
+
+    // save azimuth/elevation
+    file << azimuth << " " << elevation << std::endl;
+
+    // save ambient strength
+    file << ambientStrength << std::endl;
+
+    // save diffuse lighting
+    file << diffuseLighting << std::endl;
+
+    // save depth falloff
+    file << depthFalloff << std::endl;
 }
 
 void AppState::Load()
@@ -35,4 +47,16 @@ void AppState::Load()
 
     // load rotation
     file >> rotX >> rotY;
+
+    // load azimuth/elevation
+    file >> azimuth >> elevation;
+
+    // load ambient strength
+    file >> ambientStrength;
+
+    // load diffuse lighting
+    file >> diffuseLighting;
+
+    // load depth falloff
+    file >> depthFalloff;
 }
