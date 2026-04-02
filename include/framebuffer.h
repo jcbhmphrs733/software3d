@@ -10,6 +10,7 @@ public:
     ~Framebuffer();
 
     void clear(uint32_t color);          // clear color buffer
+    void blitBackground(const unsigned char* src); // copy a pre-scaled RGBA image into the color buffer
     void clearDepth();                   // reset depth buffer to max depth (1.0f)
 
     // only writes color if depth is closer than what's already stored

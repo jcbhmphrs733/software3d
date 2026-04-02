@@ -8,19 +8,16 @@ public:
 
     float meshColor[3] = {0.2f, 0.6f, 1.0f};
     bool useTexture = false;
-
-    float rotX = 0.0f;
-    float rotY = 0.0f;
+    std::string texturePath;    // path to UV texture, empty = use none
 
     float azimuth = 45.0f;        // degrees, horizontal rotation around Y axis
     float elevation = 45.0f;      // degrees above the horizon
     float ambientStrength = 0.2f; // minimum brightness [0,1]
 
-    bool diffuseLighting = true;
-
     bool showOutline = false;
 
-    float depthFalloff = 1.0f; // 0 = flat, higher = darker at distance
+    std::string backgroundPath; // path to background image, empty = solid black
+    std::string objPath;        // path to last loaded OBJ, empty = default
 
     void Load();
     void Save() const;

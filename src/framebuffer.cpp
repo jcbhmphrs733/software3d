@@ -36,6 +36,10 @@ void Framebuffer::clear(uint32_t color) {
     }
 }
 
+void Framebuffer::blitBackground(const unsigned char* src) {
+    memcpy(pixels, src, (size_t)width * height * 4);
+}
+
 void Framebuffer::clearDepth() {
     std::fill(depth, depth + (size_t)width * height, 1.0f);
 }
