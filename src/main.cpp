@@ -21,6 +21,7 @@
 #include "nfd.h"
 #include "nfd_glfw3.h"
 #include "RecentFilesManager.h"
+#include "AppState.h"
 #include "camera.h"
 
 // Forward declarations
@@ -72,6 +73,8 @@ size_t debugHitFace = SIZE_MAX; // index into indices[] of the last raycasted tr
 
 // Recent files manager global variable
 RecentFilesManager recentFilesManager;
+// Save the State of the application (color, texture usage, rotation) in a config file
+AppState appState;
 
 const char *vertexShaderSource = "#version 330 core\n"
                                  "layout (location = 0) in vec2 aPos;\n"
@@ -195,13 +198,15 @@ void UpdateQuadVertices(int windowWidth)
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
 }
-void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
+void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState)
 {
     Texture tex;
-    bool useTexture = false;
+    bool useTexture = appState.useTexture;
     bool texLoaded = tex.load("assets/textures/metal.jpg");
     if (!texLoaded)
         std::cerr << "Warning: texture failed to load\n";
+    float rotX = appState.rotX, rotY = appState.rotY;
+
     std::vector<unsigned int> indices = mesh.indices;
     std::vector<Vec2> screenVerts(mesh.vertices.size());
     std::vector<float> screenDepths(mesh.vertices.size());
@@ -210,13 +215,15 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
     Mesh currentMesh = mesh;
 
     // UI-controlled shading parameters
-    float meshColor[3] = {1.0f, 0.8f, 0.1f}; // base RGB in [0,1]
-    bool showOutline = false;
+    float meshColor[3] = {appState.meshColor[0], appState.meshColor[1], appState.meshColor[2]};
+    float depthFalloff = appState.depthFalloff; // 0 = flat, higher = darker at distance
 
     // Lighting parameters
-    float lightAzimuth = 45.0f;   // degrees, horizontal rotation around Y axis
-    float lightElevation = 45.0f; // degrees above the horizon
-    float ambientStrength = 0.2f; // minimum brightness [0,1]
+    bool useDiffuse = appState.diffuseLighting;
+    bool showOutline = appState.showOutline;
+    float lightAzimuth = appState.azimuth;            // degrees, horizontal rotation around Y axis
+    float lightElevation = appState.elevation;        // degrees above the horizon
+    float ambientStrength = appState.ambientStrength; // minimum brightness [0,1]
 
     // Computes one unit face normal per triangle and stores in m.faceNormals.
     // For triangle (A,B,C): e1=B-A, e2=C-A, normal=normalize(cross(e1,e2)).
@@ -559,6 +566,11 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
                 NFD_FreePathU8(outPath);
 
                 recentFilesManager.Add(loadedFilePath);
+
+                // Load the last selected object path from the config file and set it in the RecentFilesManager
+                recentFilesManager.SetLastFile(loadedFilePath);
+                recentFilesManager.Save();
+
                 currentMesh = loader.load(loadedFilePath);
                 computeFaceNormals(currentMesh);
                 computeVertexNormals(currentMesh);
@@ -585,6 +597,11 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
                 {
                     loadedFilePath = filepath;
                     currentMesh = loader.load(loadedFilePath);
+
+                    // Update the last selected file in the RecentFilesManager and save it to the config file
+                    recentFilesManager.SetLastFile(loadedFilePath);
+                    recentFilesManager.Save();
+
                     computeFaceNormals(currentMesh);
                     computeVertexNormals(currentMesh);
                     indices = currentMesh.indices;
@@ -635,6 +652,20 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
+        // Save the current state of the application (color, texture usage, rotation) in the config file when closing the application
+        appState.meshColor[0] = meshColor[0];
+        appState.meshColor[1] = meshColor[1];
+        appState.meshColor[2] = meshColor[2];
+        appState.useTexture = useTexture;
+        appState.rotX = rotX;
+        appState.rotY = rotY;
+        appState.azimuth = lightAzimuth;
+        appState.elevation = lightElevation;
+        appState.ambientStrength = ambientStrength;
+        appState.diffuseLighting = useDiffuse;
+        appState.showOutline = showOutline;
+        appState.depthFalloff = depthFalloff;
+
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
@@ -643,6 +674,8 @@ void Cleanup(GLFWwindow *window)
 {
     // Save Recent Files on Exit
     recentFilesManager.Save();
+    // Save the current state of the application (color, texture usage, rotation) in the config file when closing the application
+    appState.Save();
 
     NFD_Quit();
 
@@ -667,9 +700,11 @@ int main()
     Mesh mesh;
     std::string loadedFilePath;
 
+    appState.Load();
+
     if (!recentFilesManager.IsEmpty())
     {
-        loadedFilePath = recentFilesManager.GetFiles()[0];
+        loadedFilePath = recentFilesManager.GetLastFile();
         mesh = loader.load(loadedFilePath);
     }
     else
@@ -683,7 +718,7 @@ int main()
         return -1;
 
     SetupResources();
-    RunRenderLoop(window, mesh);
+    RunRenderLoop(window, mesh, appState);
     Cleanup(window);
 
     recentFilesManager.Save();

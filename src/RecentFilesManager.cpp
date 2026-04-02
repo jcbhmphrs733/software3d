@@ -29,6 +29,16 @@ void RecentFilesManager::Add(const std::string &filepath)
 void RecentFilesManager::Load()
 {
     std::ifstream file(CONFIG_FILE);
+
+    if (!file.is_open())
+        return;
+
+    files.clear();
+
+    // Read the last opened file
+    std::getline(file, lastFile);
+
+    // Read the rest of the files
     std::string line;
     while (std::getline(file, line) && files.size() < MAX_FILES)
     {
@@ -42,6 +52,14 @@ void RecentFilesManager::Load()
 void RecentFilesManager::Save() const
 {
     std::ofstream file(CONFIG_FILE);
+
+    if (!file.is_open())
+        return;
+
+    // Save the last opened file at the top
+    file << lastFile << "\n";
+
+    // Save the list
     for (const auto &filepath : files)
     {
         file << filepath << "\n";
@@ -51,4 +69,16 @@ void RecentFilesManager::Save() const
 void RecentFilesManager::Clear()
 {
     files.clear();
+    lastFile.clear();
+}
+
+void RecentFilesManager::SetLastFile(const std::string &path)
+{
+    lastFile = path;
+    Add(path); // Move it to the top of the recent files list
+}
+
+std::string RecentFilesManager::GetLastFile() const
+{
+    return lastFile;
 }
