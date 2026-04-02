@@ -210,7 +210,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh)
     Mesh currentMesh = mesh;
 
     // UI-controlled shading parameters
-    float meshColor[3] = {0.2f, 0.6f, 1.0f}; // base RGB in [0,1]
+    float meshColor[3] = {1.0f, 0.8f, 0.1f}; // base RGB in [0,1]
     bool showOutline = false;
 
     // Lighting parameters
