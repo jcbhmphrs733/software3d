@@ -18,6 +18,8 @@ public:
 
     bool diffuseLighting = true;
 
+    bool showOutline = false;
+
     float depthFalloff = 1.0f; // 0 = flat, higher = darker at distance
 
     void Load();

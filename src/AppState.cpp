@@ -29,6 +29,9 @@ void AppState::Save() const
     // save diffuse lighting
     file << diffuseLighting << std::endl;
 
+    // save show outline
+    file << showOutline << std::endl;
+
     // save depth falloff
     file << depthFalloff << std::endl;
 }
@@ -56,6 +59,9 @@ void AppState::Load()
 
     // load diffuse lighting
     file >> diffuseLighting;
+
+    // load show outline
+    file >> showOutline;
 
     // load depth falloff
     file >> depthFalloff;
