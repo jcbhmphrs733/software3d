@@ -896,15 +896,89 @@ void cursor_pos_callback(GLFWwindow* /*window*/, double xposIn, double yposIn)
     }
 }
 
+
 void processInput(GLFWwindow *window)
 {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 
+    const float speed = 0.75f;
+    bool anyKey = false;
+    float xoffset = 0.0f;
+    float yoffset = 0.0f;
+
+    static bool xWasPressed = true;
+    static bool cameraMode = false;
+    bool xIsPressed = glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS;
+
+    if (xIsPressed && !xWasPressed)
+        cameraMode = !cameraMode;
+    xWasPressed = xIsPressed;
+
+    if (cameraMode)
+    {
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) { camera.ProcessKeyboard(LEFT, deltaTime); anyKey = true; }
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) { camera.ProcessKeyboard(RIGHT, deltaTime); anyKey = true; }
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) { camera.ProcessKeyboard(UP, deltaTime); anyKey = true; }
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) { camera.ProcessKeyboard(DOWN, deltaTime); anyKey = true; }
+
+        if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) { xoffset += speed * 5.0f; anyKey = true; }
+        if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) { xoffset -= speed * 5.0f; anyKey = true; }
+        if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) { yoffset += speed * 5.0f; anyKey = true; }
+        if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) { yoffset -= speed * 5.0f; anyKey = true; }
+    }
+    else
+    {
+        float manualRotX = 0.0f;
+        float manualRotY = 0.0f;
+
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) { manualRotY -= speed * deltaTime * 2.0f; anyKey = true; }
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) { manualRotY += speed * deltaTime * 2.0f; anyKey = true; }
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) { manualRotX -= speed * deltaTime * 2.0f; anyKey = true; }
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) { manualRotX += speed * deltaTime * 2.0f; anyKey = true; }
+
+        if (manualRotX != 0.0f || manualRotY != 0.0f)
+        {
+            auto makeRodrigues = [](Vec3 a, float angle) -> Mat4 {
+                float c = cosf(angle), s = sinf(angle);
+                Mat4 r = Mat4::identity();
+                r.m[0] = c + a.x*a.x*(1-c); r.m[4] = a.x*a.y*(1-c)-a.z*s; r.m[8] = a.x*a.z*(1-c)+a.y*s;
+                r.m[1] = a.y*a.x*(1-c)+a.z*s; r.m[5] = c + a.y*a.y*(1-c); r.m[9] = a.y*a.z*(1-c)-a.x*s;
+                r.m[2] = a.z*a.x*(1-c)-a.y*s; r.m[6] = a.z*a.y*(1-c)+a.x*s; r.m[10] = c + a.z*a.z*(1-c);
+                return r;
+            };
+            Mat4 dRot = makeRodrigues(Vec3(0, 1, 0), manualRotY) * makeRodrigues(camera.right, manualRotX);
+            g_interaction.rotation = dRot * g_interaction.rotation;
+        }
+    }
+
+    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) { camera.ProcessKeyboard(FORWARD, deltaTime); anyKey = true; }
+    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) { camera.ProcessKeyboard(BACKWARD, deltaTime); anyKey = true; }
+
+    if (xoffset != 0.0f || yoffset != 0.0f)
+        camera.ProcessMouseMovement(xoffset, yoffset, false);
+
+    static double lastInputTime = glfwGetTime();
+    if (anyKey) lastInputTime = glfwGetTime();
+
+    if (glfwGetTime() - lastInputTime > 5.0)
+    {
+        float idleY = speed * 0.2f * deltaTime;
+        float idleX = speed * 0.05f * deltaTime;
+        auto makeRodrigues = [](Vec3 a, float angle) -> Mat4 {
+            float c = cosf(angle), s = sinf(angle);
+            Mat4 r = Mat4::identity();
+            r.m[0] = c + a.x*a.x*(1-c); r.m[4] = a.x*a.y*(1-c)-a.z*s; r.m[8] = a.x*a.z*(1-c)+a.y*s;
+            r.m[1] = a.y*a.x*(1-c)+a.z*s; r.m[5] = c + a.y*a.y*(1-c); r.m[9] = a.y*a.z*(1-c)-a.x*s;
+            r.m[2] = a.z*a.x*(1-c)-a.y*s; r.m[6] = a.z*a.y*(1-c)+a.x*s; r.m[10] = c + a.z*a.z*(1-c);
+            return r;
+        };
+        g_interaction.rotation = makeRodrigues(Vec3(0, 1, 0), idleY) * makeRodrigues(Vec3(1, 0, 0), idleX) * g_interaction.rotation;
+    }
+
     static bool fWasPressed = false;
     bool fIsPressed = glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS;
-    if (fIsPressed && !fWasPressed)
-        wireframeOnly = !wireframeOnly;
+    if (fIsPressed && !fWasPressed) wireframeOnly = !wireframeOnly;
     fWasPressed = fIsPressed;
 }
 
