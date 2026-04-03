@@ -39,3 +39,9 @@ uint32_t Texture::sample(float u, float v) const {
 Texture::~Texture() {
     if (data) stbi_image_free(data);
 }
+
+void Texture::clear() {
+    if (data) { stbi_image_free(data); data = nullptr; }
+    width = 0;
+    height = 0;
+}

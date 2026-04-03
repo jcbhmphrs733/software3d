@@ -1,4 +1,6 @@
-#include "framebuffer.h" // resolved from include/ via CMakeLists.txt target_include_directories
+#include "framebuffer.h"
+#include <cstring>
+#include <algorithm>
 
 // Framebuffer.cpp
 // Implements a simple software framebuffer that stores pixel data in CPU memory.
@@ -21,19 +23,25 @@ void Framebuffer::clear(uint32_t color) {
     unsigned char b = (color >> 8) & 0xFF;
     unsigned char a = color & 0xFF;
 
-    for (int i = 0; i < width * height; ++i) {
-        pixels[i * 4 + 0] = r;
-        pixels[i * 4 + 1] = g;
-        pixels[i * 4 + 2] = b;
-        pixels[i * 4 + 3] = a;
-    } 
-    // reason why its 4 is because we are using RGBA format and each pixel needs 4 bytes to store the color information (red, green, blue, alpha)
+    // If all four channels are identical, memset handles the whole buffer in one call
+    if (r == g && g == b && b == a) {
+        memset(pixels, r, (size_t)width * height * 4);
+    } else {
+        unsigned char* p = pixels;
+        unsigned char* end = pixels + (size_t)width * height * 4;
+        while (p < end) {
+            p[0] = r; p[1] = g; p[2] = b; p[3] = a;
+            p += 4;
+        }
+    }
+}
+
+void Framebuffer::blitBackground(const unsigned char* src) {
+    memcpy(pixels, src, (size_t)width * height * 4);
 }
 
 void Framebuffer::clearDepth() {
-    for (int i = 0; i < width * height; ++i) {
-        depth[i] = 1.0f; // 1.0 = maximum depth (far plane)
-    }
+    std::fill(depth, depth + (size_t)width * height, 1.0f);
 }
 
 bool Framebuffer::setPixelDepth(int x, int y, float d, uint32_t color) {

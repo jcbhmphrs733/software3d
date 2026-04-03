@@ -3,6 +3,12 @@ project(software3d)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Use Release build with aggressive optimizations by default
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
 if(APPLE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexperimental-library")
 endif()
@@ -32,6 +38,10 @@ target_include_directories(software3d PRIVATE
     include/ui
     include/nfd
     src
+)
+
+target_compile_options(software3d PRIVATE
+    $<$<CONFIG:Release>:-O3 -ffast-math>
 )
 
 if(WIN32)
