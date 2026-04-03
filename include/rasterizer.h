@@ -4,16 +4,13 @@
 #include "texture.h"
 #include <cstdint>
 
-// fills a triangle with depth testing and shading.
-// depthMin/depthMax normalize interpolated depth for depth-falloff mode.
-// lightIntensity is a pre-computed [0,1] diffuse factor for diffuse lighting mode.
-// useDiffuse selects between depth-falloff shading and diffuse lighting.
+// fills a triangle with depth testing and Gouraud shading.
+// lia/lib/lic are per-vertex diffuse light intensities, interpolated across the triangle.
 void DrawTriangle(Framebuffer& fb,
                   Vec2 a, Vec2 b, Vec2 c,
                   float za, float zb, float zc,
-                  uint32_t color, float depthFalloff,
-                  float depthMin, float depthMax,
-                  float lightIntensity, float ambientStrength, bool useDiffuse,
+                  uint32_t color,
+                  float lia, float lib, float lic, float ambientStrength,
                   const Texture* tex,
                   Vec2 uva, Vec2 uvb, Vec2 uvc,
                   float wa, float wb, float wc);

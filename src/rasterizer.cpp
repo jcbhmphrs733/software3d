@@ -9,18 +9,30 @@ static float edgeFunction(const Vec2& a, const Vec2& b, const Vec2& p) {
 void DrawTriangle(Framebuffer& fb,
                   Vec2 a, Vec2 b, Vec2 c,
                   float za, float zb, float zc,
-                  uint32_t color, float depthFalloff,
-                  float depthMin, float depthMax,
-                  float lightIntensity, float ambientStrength, bool useDiffuse,
+                  uint32_t color,
+                  float lia, float lib, float lic, float ambientStrength,
                   const Texture* tex,
                   Vec2 uva, Vec2 uvb, Vec2 uvc,
-                  float wa, float wb, float wc) { // Update signature here
+                  float wa, float wb, float wc) {
     int minX = (int)std::max(0.0f,                      std::min({a.x, b.x, c.x}));
     int minY = (int)std::max(0.0f,                      std::min({a.y, b.y, c.y}));
     int maxX = (int)std::min((float)fb.getWidth()  - 1, std::max({a.x, b.x, c.x}));
     int maxY = (int)std::min((float)fb.getHeight() - 1, std::max({a.y, b.y, c.y}));
 
-    float areaInv = 1.0f / edgeFunction(a, b, c); 
+    float areaInv = 1.0f / edgeFunction(a, b, c);
+
+    // Hoist per-triangle reciprocals and perspective-divided UVs out of the pixel loop
+    float inv_wa = 1.0f / wa;
+    float inv_wb = 1.0f / wb;
+    float inv_wc = 1.0f / wc;
+    Vec2 uva_w = Vec2(uva.x * inv_wa, uva.y * inv_wa);
+    Vec2 uvb_w = Vec2(uvb.x * inv_wb, uvb.y * inv_wb);
+    Vec2 uvc_w = Vec2(uvc.x * inv_wc, uvc.y * inv_wc);
+
+    // Pre-compute per-vertex shade values for Gouraud interpolation
+    float shadeA = ambientStrength + (1.0f - ambientStrength) * lia;
+    float shadeB = ambientStrength + (1.0f - ambientStrength) * lib;
+    float shadeC = ambientStrength + (1.0f - ambientStrength) * lic;
 
     for (int y = minY; y <= maxY; y++) {
         for (int x = minX; x <= maxX; x++) {
@@ -37,27 +49,12 @@ void DrawTriangle(Framebuffer& fb,
             if (bar0 >= 0.0f && bar1 >= 0.0f && bar2 >= 0.0f) {
                 float depth = bar0 * za + bar1 * zb + bar2 * zc;
 
-                float shade;
-                if (useDiffuse) {
-                    shade = ambientStrength + (1.0f - ambientStrength) * lightIntensity;
-                    if (shade > 1.0f) shade = 1.0f;
-                } else {
-                    float range = depthMax - depthMin;
-                    float normalizedDepth = (range > 0.0f) ? (depth - depthMin) / range : 0.0f;
-                    shade = 1.0f - normalizedDepth * depthFalloff;
-                    if (shade < 0.0f) shade = 0.0f;
-                }
+                // Gouraud: interpolate shade across the triangle
+                float shade = bar0 * shadeA + bar1 * shadeB + bar2 * shadeC;
+                if (shade > 1.0f) shade = 1.0f;
 
-                uint32_t baseColor;
+                uint32_t shadedColor;
                 if (tex) {
-                    float inv_wa = 1.0f / wa;
-                    float inv_wb = 1.0f / wb;
-                    float inv_wc = 1.0f / wc;
-
-                    Vec2 uva_w = Vec2(uva.x * inv_wa, uva.y * inv_wa);
-                    Vec2 uvb_w = Vec2(uvb.x * inv_wb, uvb.y * inv_wb);
-                    Vec2 uvc_w = Vec2(uvc.x * inv_wc, uvc.y * inv_wc);
-
                     float inv_w_interp = bar0 * inv_wa + bar1 * inv_wb + bar2 * inv_wc;
 
                     float u_interp = bar0 * uva_w.x + bar1 * uvb_w.x + bar2 * uvc_w.x;
@@ -66,15 +63,17 @@ void DrawTriangle(Framebuffer& fb,
                     float final_u = u_interp / inv_w_interp;
                     float final_v = v_interp / inv_w_interp;
 
-                    baseColor = tex->sample(final_u, final_v);
+                    uint32_t texel = tex->sample(final_u, final_v);
+                    unsigned char r = (unsigned char)(((texel >> 24) & 0xFF) * shade);
+                    unsigned char g = (unsigned char)(((texel >> 16) & 0xFF) * shade);
+                    unsigned char b = (unsigned char)(((texel >>  8) & 0xFF) * shade);
+                    shadedColor = (r << 24) | (g << 16) | (b << 8) | 0xFF;
                 } else {
-                    baseColor = color;
+                    unsigned char r = (unsigned char)(((color >> 24) & 0xFF) * shade);
+                    unsigned char g = (unsigned char)(((color >> 16) & 0xFF) * shade);
+                    unsigned char b = (unsigned char)(((color >>  8) & 0xFF) * shade);
+                    shadedColor = (r << 24) | (g << 16) | (b << 8) | 0xFF;
                 }
-
-                unsigned char r = (unsigned char)(((baseColor >> 24) & 0xFF) * shade);
-                unsigned char g = (unsigned char)(((baseColor >> 16) & 0xFF) * shade);
-                unsigned char b = (unsigned char)(((baseColor >>  8) & 0xFF) * shade);
-                uint32_t shadedColor = (r << 24) | (g << 16) | (b << 8) | 0xFF;
 
                 fb.setPixelDepth(x, y, depth, shadedColor);
             }
