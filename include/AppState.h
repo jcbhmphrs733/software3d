@@ -13,6 +13,8 @@ public:
     float azimuth = 45.0f;        // degrees, horizontal rotation around Y axis
     float elevation = 45.0f;      // degrees above the horizon
     float ambientStrength = 0.2f; // minimum brightness [0,1]
+    float depthFalloff = 0.5f;    // how quickly brightness falls off with depth
+    bool diffuseLighting = true;  // whether to apply diffuse lighting at all
 
     bool showOutline = false;
 

@@ -21,8 +21,8 @@
 #include "RecentFilesManager.h"
 #include "AppState.h"
 #include "camera.h"
+#include <thread>
 
-// Forward declarations
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void processInput(GLFWwindow *window);
 void UpdateQuadVertices(int windowWidth);
@@ -31,17 +31,16 @@ void SetupMSAA();
 void mouse_button_callback(GLFWwindow *window, int button, int action, int mods);
 void cursor_pos_callback(GLFWwindow *window, double xposIn, double yposIn);
 
-const int VIEWPORT_WIDTH = 800;
-const int VIEWPORT_HEIGHT = 600;
 const int PANEL_WIDTH = 200;
-const int WINDOW_WIDTH = VIEWPORT_WIDTH + PANEL_WIDTH;
-const int WINDOW_HEIGHT = VIEWPORT_HEIGHT;
 const char *WINDOW_TITLE = "Software Rasterizer";
 
-GLuint msFBO, msTexture;
+// Consolidated Global Window and Viewport Variables
+int currentWindowWidth = 1000;
+int currentWindowHeight = 600;
+int viewportWidth = currentWindowWidth - PANEL_WIDTH;
+int viewportHeight = currentWindowHeight;
 
-int currentWindowWidth = WINDOW_WIDTH;
-int currentWindowHeight = WINDOW_HEIGHT;
+GLuint msFBO, msTexture;
 
 GLuint shaderProgram, VAO, VBO, EBO, textureID;
 Framebuffer *fb = nullptr;
@@ -55,22 +54,20 @@ float lastFrameTime = 0.0f;
 // Mouse interaction state
 float lastMouseX = 0.0f;
 float lastMouseY = 0.0f;
-bool  lmbDown    = false;   // left button held
-bool  rmbDown    = false;   // right button held
+bool  lmbDown    = false;
+bool  rmbDown    = false;
 
-// Scroll-based object depth offset (along camera forward axis)
+// Scroll-based object depth offset
 float scrollOffset = 0.0f;
 
-// Arcball / pan state — set by RunRenderLoop, read by callbacks
 struct InteractionState {
-    // Model matrix decomposed as: translate(pan) * rotate(rotation) * translate(scrollFwd)
     Mat4 rotation    = Mat4::identity();
-    Vec3 pan         = Vec3(0.0f, 0.0f, 0.0f);   // world-space XY translation
-    Vec3 pivotWorld  = Vec3(0.0f, 0.0f, 0.0f);   // arcball pivot in world space
+    Vec3 pan         = Vec3(0.0f, 0.0f, 0.0f);
+    Vec3 pivotWorld  = Vec3(0.0f, 0.0f, 0.0f);
     bool draggingRot = false;
     bool draggingPan = false;
 } g_interaction;
-size_t debugHitFace = SIZE_MAX; // index into indices[] of the last raycasted triangle
+size_t debugHitFace = SIZE_MAX;
 
 RecentFilesManager recentFilesManager;
 AppState appState;
@@ -103,7 +100,7 @@ GLFWwindow *InitializeWindow()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow *window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, NULL, NULL);
+    GLFWwindow *window = glfwCreateWindow(currentWindowWidth, currentWindowHeight, WINDOW_TITLE, NULL, NULL);
     if (!window)
     {
         glfwTerminate();
@@ -139,7 +136,7 @@ void SetupMSAA() {
 
     glGenTextures(1, &msTexture);
     glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, msTexture);
-    glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, 4, GL_RGBA, WINDOW_WIDTH, WINDOW_HEIGHT, GL_TRUE);
+    glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, 4, GL_RGBA, currentWindowWidth, currentWindowHeight, GL_TRUE);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D_MULTISAMPLE, msTexture, 0);
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -163,7 +160,7 @@ void SetupResources()
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    float viewportRight = 1.0f - 2.0f * ((float)PANEL_WIDTH / (float)WINDOW_WIDTH);
+    float viewportRight = 1.0f - 2.0f * ((float)PANEL_WIDTH / (float)currentWindowWidth);
     float vertices[] = {
         viewportRight, 1.0f, 1.0f, 1.0f,
         viewportRight, -1.0f, 1.0f, 0.0f,
@@ -195,9 +192,9 @@ void SetupResources()
     glBindTexture(GL_TEXTURE_2D, textureID);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, viewportWidth, viewportHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-    fb = new Framebuffer(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+    fb = new Framebuffer(viewportWidth, viewportHeight);
 }
 
 void UpdateQuadVertices(int windowWidth)
@@ -211,8 +208,11 @@ void UpdateQuadVertices(int windowWidth)
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
 }
+
+
 void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std::string initialFilePath)
 {
+    bool useSSAA = false;
     Texture tex;
     bool useTexture = appState.useTexture;
     std::string texPath = appState.texturePath;
@@ -224,24 +224,27 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
     std::vector<float> screenDepths(mesh.vertices.size());
     std::vector<float> clipWs(mesh.vertices.size());
 
+    int ssaaFactor = 2;
+    int currentFbWidth = viewportWidth;
+    int currentFbHeight = viewportHeight;
+
+    int internalWidth = currentFbWidth * ssaaFactor;
+    int internalHeight = currentFbHeight * ssaaFactor;
+
+    std::unique_ptr<Framebuffer> ssaaFb = std::make_unique<Framebuffer>(internalWidth, internalHeight);
+
     Mesh currentMesh = mesh;
 
     float meshColor[3] = {appState.meshColor[0], appState.meshColor[1], appState.meshColor[2]};
     float depthFalloff = appState.depthFalloff;
 
-    bool useDiffuse = appState.diffuseLighting;
+    bool useDiffuse = appState.diffuseLighting;  
     float lightAzimuth = appState.azimuth;
     float lightElevation = appState.elevation;
     float ambientStrength = appState.ambientStrength;
 
-
-    // Lighting parameters
     bool showOutline = appState.showOutline;
-    float lightAzimuth = appState.azimuth;            // degrees, horizontal rotation around Y axis
-    float lightElevation = appState.elevation;        // degrees above the horizon
-    float ambientStrength = appState.ambientStrength; // minimum brightness [0,1]
 
-    // Background image — pre-scaled to VIEWPORT_WIDTH x VIEWPORT_HEIGHT once at load time
     std::string bgPath = appState.backgroundPath;
     std::vector<unsigned char> bgPixels;
     bool hasBg = false;
@@ -254,15 +257,15 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             hasBg = false;
             return;
         }
-        bgPixels.resize((size_t)VIEWPORT_WIDTH * VIEWPORT_HEIGHT * 4);
-        for (int y = 0; y < VIEWPORT_HEIGHT; ++y)
+        bgPixels.resize((size_t)internalWidth * internalHeight * 4);
+        for (int y = 0; y < internalHeight; ++y)
         {
-            for (int x = 0; x < VIEWPORT_WIDTH; ++x)
+            for (int x = 0; x < internalWidth; ++x)
             {
-                float u = (x + 0.5f) / (float)VIEWPORT_WIDTH;
-                float v = (y + 0.5f) / (float)VIEWPORT_HEIGHT;
+                float u = (x + 0.5f) / (float)internalWidth;
+                float v = (y + 0.5f) / (float)internalHeight;
                 uint32_t c = bgTex.sample(u, v);
-                int idx = (y * VIEWPORT_WIDTH + x) * 4;
+                int idx = (y * internalWidth + x) * 4;
                 bgPixels[idx + 0] = (c >> 24) & 0xFF;
                 bgPixels[idx + 1] = (c >> 16) & 0xFF;
                 bgPixels[idx + 2] = (c >>  8) & 0xFF;
@@ -275,8 +278,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
     if (!bgPath.empty())
         loadBackground(bgPath);
 
-    // Computes one unit face normal per triangle and stores in m.faceNormals.
-    // For triangle (A,B,C): e1=B-A, e2=C-A, normal=normalize(cross(e1,e2)).
     auto computeFaceNormals = [](Mesh &m)
     {
         size_t faceCount = m.indices.size() / 3;
@@ -292,7 +293,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         }
     };
 
-    // Average surrounding face normals into each vertex for Gouraud shading
     auto computeVertexNormals = [](Mesh &m)
     {
         m.vertexNormals.assign(m.vertices.size(), Vec3(0.0f, 0.0f, 0.0f));
@@ -323,6 +323,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         indices = currentMesh.indices;
         screenVerts.resize(currentMesh.vertices.size());
         screenDepths.resize(currentMesh.vertices.size());
+        clipWs.resize(currentMesh.vertices.size()); 
         recentFilesManager.SetLastFile(path);
         recentFilesManager.Save();
         g_interaction = InteractionState{};
@@ -338,37 +339,57 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
 
         processInput(window);
 
+        int targetSsaaFactor = useSSAA ? 2 : 1;
+
+        if (viewportWidth != currentFbWidth || viewportHeight != currentFbHeight || ssaaFactor != targetSsaaFactor)
+        {
+            currentFbWidth = viewportWidth;
+            currentFbHeight = viewportHeight;
+            ssaaFactor = targetSsaaFactor;
+            
+            internalWidth = currentFbWidth * ssaaFactor;
+            internalHeight = currentFbHeight * ssaaFactor;
+
+            ssaaFb = std::make_unique<Framebuffer>(internalWidth, internalHeight);
+            
+            delete fb;
+            fb = new Framebuffer(currentFbWidth, currentFbHeight);
+
+            glBindTexture(GL_TEXTURE_2D, textureID);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, currentFbWidth, currentFbHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+            if (hasBg)
+            {
+                loadBackground(bgPath);
+            }
+        }
+
         float currentFrameTime = glfwGetTime();
         deltaTime = currentFrameTime - lastFrameTime;
         lastFrameTime = currentFrameTime;
 
         if (hasBg)
-            fb->blitBackground(bgPixels.data());
+            ssaaFb->blitBackground(bgPixels.data());
         else
-            fb->clear(0x000000FF);
-        fb->clearDepth();
+            ssaaFb->clear(0x000000FF);
+        ssaaFb->clearDepth();
 
         Mat4 view = camera.GetViewMatrix();
-        Mat4 projection = Mat4::perspective(camera.zoom * 3.14159f / 180.0f, (float)VIEWPORT_WIDTH / (float)VIEWPORT_HEIGHT, 0.1f, 100.0f);
+        Mat4 projection = Mat4::perspective(camera.zoom * 3.14159f / 180.0f, (float)currentFbWidth / (float)currentFbHeight, 0.1f, 100.0f);
         Vec3 fwdOff = camera.front * (-scrollOffset);
         Mat4 model  = Mat4::translate(Vec3(g_interaction.pan.x + fwdOff.x,
                                            g_interaction.pan.y + fwdOff.y,
                                            g_interaction.pan.z + fwdOff.z))
                       * g_interaction.rotation;
 
-        // On the first frame of LMB press, raycast through the cursor to set the arcball pivot.
         static bool prevLmbDown = false;
         if (lmbDown && !prevLmbDown)
         {
             float fovY_rad = camera.zoom * (3.14159265f / 180.0f);
             float tanHalf  = tanf(fovY_rad * 0.5f);
-            float aspect   = (float)VIEWPORT_WIDTH / (float)VIEWPORT_HEIGHT;
-            float ndcX = (lastMouseX / (float)VIEWPORT_WIDTH)  * 2.0f - 1.0f;
-            // Y: match the mesh rendering convention ((1-ndc)*0.5*H → row, row displayed at H-row)
-            // GLFW y=0 is visual top; the mesh maps ndc_y=+1 to framebuffer row 0 (visual bottom),
-            // so the correct NDC y for a click is (y/H)*2-1, NOT 1-(y/H)*2.
-            float ndcY = (lastMouseY / (float)VIEWPORT_HEIGHT) * 2.0f - 1.0f;
-            // Build world-space ray from camera through the clicked pixel
+            float aspect   = (float)currentFbWidth / (float)currentFbHeight;
+            float ndcX = (lastMouseX / (float)currentFbWidth)  * 2.0f - 1.0f;
+            float ndcY = (lastMouseY / (float)currentFbHeight) * 2.0f - 1.0f;
             Vec3 rayDir = (camera.right * (ndcX * aspect * tanHalf)
                          + camera.up   * (ndcY * tanHalf)
                          + camera.front).normalized();
@@ -389,11 +410,10 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 Vec3 wA(wA4.x, wA4.y, wA4.z);
                 Vec3 wB(wB4.x, wB4.y, wB4.z);
                 Vec3 wC(wC4.x, wC4.y, wC4.z);
-                // Möller–Trumbore intersection (front-face only, matching the renderer's back-face cull)
                 Vec3 e1 = wB - wA, e2 = wC - wA;
                 Vec3 h   = rayDir.cross(e2);
                 float det = e1.dot(h);
-                if (det < 1e-6f) continue;  // skip back-facing and parallel triangles
+                if (det < 1e-6f) continue;
                 float invDet = 1.0f / det;
                 Vec3  s = rayOrigin - wA;
                 float u = s.dot(h) * invDet;
@@ -414,7 +434,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 g_interaction.pivotWorld = hitPoint;
             else
             {
-                // Place pivot on ray at the midpoint depth between nearest and farthest vertex
                 float tMin = 1e30f, tMax = -1e30f;
                 for (size_t vi = 0; vi < currentMesh.vertices.size(); ++vi)
                 {
@@ -443,9 +462,10 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             const Vec3 &v = currentMesh.vertices[i];
             Vec4 clip = MVP * Vec4(v.x, v.y, v.z, 1.0f);
             Vec3 ndc = Vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
+            
             screenVerts[i] = Vec2(
-                (ndc.x + 1.0f) / 2.0f * VIEWPORT_WIDTH,
-                (1.0f - ndc.y) / 2.0f * VIEWPORT_HEIGHT);
+                (ndc.x + 1.0f) / 2.0f * internalWidth,
+                (1.0f - ndc.y) / 2.0f * internalHeight);
             screenDepths[i] = (ndc.z + 1.0f) / 2.0f;
             clipWs[i] = clip.w;
         }
@@ -455,9 +475,9 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             for (size_t i = 0; i < indices.size(); i += 3)
             {
                 unsigned int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
-                DrawLine(*fb, screenVerts[i0], screenVerts[i1], screenDepths[i0], screenDepths[i1], 0xFFFFFFFF);
-                DrawLine(*fb, screenVerts[i1], screenVerts[i2], screenDepths[i1], screenDepths[i2], 0xFFFFFFFF);
-                DrawLine(*fb, screenVerts[i2], screenVerts[i0], screenDepths[i2], screenDepths[i0], 0xFFFFFFFF);
+                DrawLine(*ssaaFb, screenVerts[i0], screenVerts[i1], screenDepths[i0], screenDepths[i1], 0xFFFFFFFF);
+                DrawLine(*ssaaFb, screenVerts[i1], screenVerts[i2], screenDepths[i1], screenDepths[i2], 0xFFFFFFFF);
+                DrawLine(*ssaaFb, screenVerts[i2], screenVerts[i0], screenDepths[i2], screenDepths[i0], 0xFFFFFFFF);
             }
         }
         else
@@ -468,7 +488,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             float el = lightElevation * (3.14159265f / 180.0f);
             Vec3 lightDir = Vec3(cosf(el) * sinf(az), sinf(el), cosf(el) * cosf(az)).normalized();
 
-            // Pre-compute per-vertex light intensity for this frame (model matrix is constant)
             size_t vertCount = currentMesh.vertexNormals.size();
             std::vector<float> vertLightIntensity(vertCount, 0.0f);
             for (size_t v = 0; v < vertCount; ++v)
@@ -481,7 +500,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 vertLightIntensity[v] = (d > 0.0f) ? d : 0.0f;
             }
 
-            // Pass 1: fills
             for (size_t i = 0; i < indices.size(); i += 3)
             {
                 unsigned int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
@@ -490,16 +508,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 if (area >= 0.0f)
                     continue;
 
-                float lightIntensity = 0.0f;
-                size_t faceIdx = i / 3;
-                if (useDiffuse && faceIdx < currentMesh.faceNormals.size())
-                {
-                    Vec3 &objNormal = currentMesh.faceNormals[faceIdx];
-                    Vec4 tn = model * Vec4(objNormal.x, objNormal.y, objNormal.z, 0.0f);
-                    Vec3 worldNormal = Vec3(tn.x, tn.y, tn.z).normalized();
-                    float d = worldNormal.dot(lightDir);
-                    lightIntensity = (d > 0.0f) ? d : 0.0f;
-                }
                 float lia = (i0 < vertCount) ? vertLightIntensity[i0] : 0.0f;
                 float lib = (i1 < vertCount) ? vertLightIntensity[i1] : 0.0f;
                 float lic = (i2 < vertCount) ? vertLightIntensity[i2] : 0.0f;
@@ -512,10 +520,9 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                     uvc = currentMesh.uvs[currentMesh.uvIndices[i + 2]];
                 }
 
-                // Debug: highlight the raycasted hit face in yellow
                 uint32_t faceColor = (i == debugHitFace) ? 0xFFFF00FF : color;
 
-                DrawTriangle(*fb, a, b, c,
+                DrawTriangle(*ssaaFb, a, b, c,
                              screenDepths[i0], screenDepths[i1], screenDepths[i2],
                              faceColor,
                              lia, lib, lic, ambientStrength,
@@ -533,40 +540,31 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                     float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
                     if (area >= 0.0f)
                         continue;
-                    DrawLine(*fb, a, b, screenDepths[i0], screenDepths[i1], 0x000000FF);
-                    DrawLine(*fb, b, c, screenDepths[i1], screenDepths[i2], 0x000000FF);
-                    DrawLine(*fb, c, a, screenDepths[i2], screenDepths[i0], 0x000000FF);
+                    DrawLine(*ssaaFb, a, b, screenDepths[i0], screenDepths[i1], 0x000000FF);
+                    DrawLine(*ssaaFb, b, c, screenDepths[i1], screenDepths[i2], 0x000000FF);
+                    DrawLine(*ssaaFb, c, a, screenDepths[i2], screenDepths[i0], 0x000000FF);
                 }
             }
         }
 
-        // Draw trihedron (object local X/Y/Z axes) at the pivot point while LMB dragging
         if (g_interaction.draggingRot)
         {
-            // pivotWorld is already in world space — project with VP (not MVP)
             Mat4 VP = projection * view;
             Vec4 pivotClip = VP * Vec4(g_interaction.pivotWorld.x,
                                        g_interaction.pivotWorld.y,
                                        g_interaction.pivotWorld.z, 1.0f);
             float origX, origY;
             if (pivotClip.w > 0.0f) {
-                origX = ((pivotClip.x / pivotClip.w) + 1.0f) * 0.5f * VIEWPORT_WIDTH;
-                // Use same Y convention as mesh rendering: (1-ndc)*0.5*H
-                origY = (1.0f - (pivotClip.y / pivotClip.w)) * 0.5f * VIEWPORT_HEIGHT;
+                origX = ((pivotClip.x / pivotClip.w) + 1.0f) * 0.5f * internalWidth;
+                origY = (1.0f - (pivotClip.y / pivotClip.w)) * 0.5f * internalHeight;
             } else {
-                origX = 40.0f;
-                origY = (float)(VIEWPORT_HEIGHT - 40);
+                origX = 40.0f * ssaaFactor;
+                origY = (float)(internalHeight - 40 * ssaaFactor);
             }
-            const float axisLen = 25.0f;
-            // Extract local axes from rotation matrix (column-major: col i = m[i*4..i*4+2])
-            // Map to user convention: X=right, Y=forward(into screen), Z=up
-            //   User X (red)   = column 0 (world X)
-            //   User Y (green) = -column 2 (world -Z = forward away from camera)
-            //   User Z (blue)  = column 1 (world Y = up)
+            const float axisLen = 25.0f * ssaaFactor;
             Vec3 axisX( g_interaction.rotation.m[0],  g_interaction.rotation.m[1],  g_interaction.rotation.m[2]);
             Vec3 axisY(-g_interaction.rotation.m[8], -g_interaction.rotation.m[9], -g_interaction.rotation.m[10]);
             Vec3 axisZ( g_interaction.rotation.m[4],  g_interaction.rotation.m[5],  g_interaction.rotation.m[6]);
-            // Project each axis through view to a 2D screen offset
             Mat4 viewMat = camera.GetViewMatrix();
             auto projectAxis = [&](Vec3 axis) -> Vec2 {
                 Vec4 v = viewMat * Vec4(axis.x, axis.y, axis.z, 0.0f);
@@ -576,13 +574,69 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             Vec2 px = projectAxis(axisX);
             Vec2 py = projectAxis(axisY);
             Vec2 pz = projectAxis(axisZ);
-            DrawLine(*fb, origin2D, Vec2(origX + px.x, origY + px.y), 0.0f, 0.0f, 0xFF2020FF); // X red
-            DrawLine(*fb, origin2D, Vec2(origX + py.x, origY + py.y), 0.0f, 0.0f, 0x20FF20FF); // Y green (forward)
-            DrawLine(*fb, origin2D, Vec2(origX + pz.x, origY + pz.y), 0.0f, 0.0f, 0x2080FFFF); // Z blue (up)
+            DrawLine(*ssaaFb, origin2D, Vec2(origX + px.x, origY + px.y), 0.0f, 0.0f, 0xFF2020FF);
+            DrawLine(*ssaaFb, origin2D, Vec2(origX + py.x, origY + py.y), 0.0f, 0.0f, 0x20FF20FF);
+            DrawLine(*ssaaFb, origin2D, Vec2(origX + pz.x, origY + pz.y), 0.0f, 0.0f, 0x2080FFFF);
+        }
+
+        const uint8_t* ssaaPixels = (const uint8_t*)ssaaFb->getPixels();
+        uint8_t* outPixels = (uint8_t*)fb->getPixels();
+
+        if (ssaaFactor == 2)
+        {
+            const int outStride = currentFbWidth * 4;
+            const int inStride = internalWidth * 4;
+
+            unsigned int numThreads = std::thread::hardware_concurrency();
+            if (numThreads == 0) numThreads = 4; 
+
+            std::vector<std::thread> threads;
+            int rowsPerThread = currentFbHeight / numThreads;
+
+            for (unsigned int t = 0; t < numThreads; ++t)
+            {
+                threads.emplace_back([&, t]() 
+                {
+                    int startY = t * rowsPerThread;
+                    int endY = (t == numThreads - 1) ? currentFbHeight : startY + rowsPerThread;
+
+                    for (int y = startY; y < endY; ++y)
+                    {
+                        uint8_t* outRow = outPixels + (y * outStride);
+                        const uint8_t* inRow0 = ssaaPixels + ((y * 2) * inStride);
+                        const uint8_t* inRow1 = inRow0 + inStride;
+
+                        for (int x = 0; x < currentFbWidth; ++x)
+                        {
+                            int inX = x * 8; 
+
+                            int r = inRow0[inX + 0] + inRow0[inX + 4] + inRow1[inX + 0] + inRow1[inX + 4];
+                            int g = inRow0[inX + 1] + inRow0[inX + 5] + inRow1[inX + 1] + inRow1[inX + 5];
+                            int b = inRow0[inX + 2] + inRow0[inX + 6] + inRow1[inX + 2] + inRow1[inX + 6];
+                            int a = inRow0[inX + 3] + inRow0[inX + 7] + inRow1[inX + 3] + inRow1[inX + 7];
+
+                            int outX = x * 4;
+                            outRow[outX + 0] = r >> 2;
+                            outRow[outX + 1] = g >> 2;
+                            outRow[outX + 2] = b >> 2;
+                            outRow[outX + 3] = a >> 2;
+                        }
+                    }
+                });
+            }
+
+            for (auto& th : threads)
+            {
+                th.join();
+            }
+        }
+        else
+        {
+            memcpy(outPixels, ssaaPixels, currentFbWidth * currentFbHeight * 4);
         }
 
         glBindTexture(GL_TEXTURE_2D, textureID);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, 
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, currentFbWidth, currentFbHeight, 
                         GL_RGBA, GL_UNSIGNED_BYTE, fb->getPixels());
 
         glBindFramebuffer(GL_FRAMEBUFFER, msFBO);
@@ -596,15 +650,15 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
 
         glBindFramebuffer(GL_READ_FRAMEBUFFER, msFBO);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-        glBlitFramebuffer(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 
-                          0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 
-                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBlitFramebuffer(0, 0, currentWindowWidth, currentWindowHeight, 
+                        0, 0, currentWindowWidth, currentWindowHeight, 
+                        GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::SetNextWindowPos(ImVec2((float)(currentWindowWidth - PANEL_WIDTH), 0.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2((float)currentFbWidth, 0.0f), ImGuiCond_Always);
         ImGui::SetNextWindowSize(ImVec2((float)PANEL_WIDTH, (float)currentWindowHeight), ImGuiCond_Always);
         ImGui::Begin("Scene", nullptr,
                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
@@ -617,6 +671,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         ImGui::Spacing();
         ImGui::Text("Shading");
         ImGui::Separator();
+        ImGui::Checkbox("Use SSAA (Anti-Aliasing)", &useSSAA);
         ImGui::Checkbox("Use Texture", &useTexture);
         if (texLoaded)
             ImGui::TextWrapped("%s", std::filesystem::path(texPath).filename().string().c_str());
@@ -727,6 +782,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 indices = currentMesh.indices;
                 screenVerts.resize(currentMesh.vertices.size());
                 screenDepths.resize(currentMesh.vertices.size());
+                clipWs.resize(currentMesh.vertices.size());
                 
                 recentFilesManager.Add(path);
                 loadMesh(path);
@@ -736,30 +792,33 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         ImGui::Text("Recent Files");
         ImGui::Separator();
 
-        if (recentFilesManager.IsEmpty())
+        for (const auto &filepath : recentFilesManager.GetFiles())
         {
-            ImGui::Text("No recent files.");
-        }
-        else
-        {
-            for (const auto &filepath : recentFilesManager.GetFiles())
+            std::string filename = std::filesystem::path(filepath).filename().string();
+            
+            if (filename.empty())
             {
-                if (ImGui::Button(std::filesystem::path(filepath).filename().string().c_str()))
-                {
-                    loadedFilePath = filepath;
-                    currentMesh = loader.load(loadedFilePath);
+                continue;
+            }
 
-                    recentFilesManager.SetLastFile(loadedFilePath);
-                    recentFilesManager.Save();
+            std::string buttonLabel = filename + "##" + filepath;
 
-                    computeFaceNormals(currentMesh);
+            if (ImGui::Button(buttonLabel.c_str()))
+            {
+                loadedFilePath = filepath;
+                currentMesh = loader.load(loadedFilePath);
 
-                    indices = currentMesh.indices;
-                    screenVerts.resize(currentMesh.vertices.size());
-                    screenDepths.resize(currentMesh.vertices.size());
-                    
-                }
-                    loadMesh(filepath);
+                recentFilesManager.SetLastFile(loadedFilePath);
+                recentFilesManager.Save();
+
+                computeFaceNormals(currentMesh);
+
+                indices = currentMesh.indices;
+                screenVerts.resize(currentMesh.vertices.size());
+                screenDepths.resize(currentMesh.vertices.size());
+                clipWs.resize(currentMesh.vertices.size());
+                
+                loadMesh(filepath);
             }
         }
 
@@ -801,7 +860,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-        // Sync live UI values back to appState each frame
         appState.meshColor[0] = meshColor[0];
         appState.meshColor[1] = meshColor[1];
         appState.meshColor[2] = meshColor[2];
@@ -874,13 +932,11 @@ int main()
 
 void scroll_callback(GLFWwindow* /*window*/, double /*xoffset*/, double yoffset)
 {
-    // Positive yoffset = scroll up = move object away; negative = closer
     scrollOffset -= (float)yoffset * 0.2f;
 }
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int /*mods*/)
 {
-    // Don't capture clicks that land on the ImGui panel
     if (ImGui::GetIO().WantCaptureMouse) return;
 
     double mx, my;
@@ -912,8 +968,7 @@ void cursor_pos_callback(GLFWwindow* /*window*/, double xposIn, double yposIn)
     lastMouseY = ypos;
 
     if (g_interaction.draggingPan) {
-        // Scale pan speed relative to viewport size
-        const float panSpeed = 5.0f / VIEWPORT_WIDTH;
+        const float panSpeed = 5.0f / viewportWidth;
         Vec3 right = camera.right;
         Vec3 up    = camera.up;
         g_interaction.pan = g_interaction.pan + right * (dx * panSpeed)
@@ -921,12 +976,11 @@ void cursor_pos_callback(GLFWwindow* /*window*/, double xposIn, double yposIn)
     }
 
     if (g_interaction.draggingRot) {
-        // Arcball: map mouse delta to rotation axis/angle
-        float angleX = -dy * (3.14159265f / VIEWPORT_HEIGHT);  // pitch around camera right
-        float angleY = dx * (3.14159265f / VIEWPORT_WIDTH);   // yaw around camera up
+        float angleX = -dy * (3.14159265f / viewportHeight);
+        float angleY = dx * (3.14159265f / viewportWidth);
 
         Vec3 axisX = camera.right;
-        Vec3 axisY = Vec3(0.0f, 1.0f, 0.0f);  // world Y keeps roll from drifting
+        Vec3 axisY = Vec3(0.0f, 1.0f, 0.0f);
 
         auto makeRodrigues = [](Vec3 a, float angle) -> Mat4 {
             float c = cosf(angle), s = sinf(angle);
@@ -939,8 +993,6 @@ void cursor_pos_callback(GLFWwindow* /*window*/, double xposIn, double yposIn)
 
         Mat4 dRot = makeRodrigues(axisY, angleY) * makeRodrigues(axisX, angleX);
 
-        // Apply around pivot — must operate on the full model matrix, not just rotation,
-        // otherwise the translation component shifts the pivot off the surface.
         Vec3 fwdOffRot = camera.front * (-scrollOffset);
         Mat4 fullModel  = Mat4::translate(Vec3(g_interaction.pan.x + fwdOffRot.x,
                                                g_interaction.pan.y + fwdOffRot.y,
@@ -949,7 +1001,6 @@ void cursor_pos_callback(GLFWwindow* /*window*/, double xposIn, double yposIn)
         Vec3 p = g_interaction.pivotWorld;
         Mat4 newModel = Mat4::translate(p) * dRot
                         * Mat4::translate(Vec3(-p.x, -p.y, -p.z)) * fullModel;
-        // Re-decompose: upper 3x3 = new rotation, column 3 = new translation
         g_interaction.pan = Vec3(newModel.m[12] - fwdOffRot.x,
                                  newModel.m[13] - fwdOffRot.y,
                                  newModel.m[14] - fwdOffRot.z);
@@ -1051,6 +1102,16 @@ void framebuffer_size_callback(GLFWwindow *window, int width, int height)
 {
     currentWindowWidth = width;
     currentWindowHeight = height;
+    
+    viewportWidth = width - PANEL_WIDTH;
+    if (viewportWidth < 1) viewportWidth = 1;
+    
+    viewportHeight = height;
+    if (viewportHeight < 1) viewportHeight = 1;
+
     glViewport(0, 0, width, height);
     UpdateQuadVertices(width);
+
+    glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, msTexture);
+    glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, 4, GL_RGBA, width, height, GL_TRUE);
 }

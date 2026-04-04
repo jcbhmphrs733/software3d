@@ -1,7 +1,9 @@
-0.2 0.6 1
-0
-88.1994 441
-101.053 -41.053
-0.544
-1
-0
+meshColor 0.2 0.6 1
+useTexture 0
+texturePath C:\Users\tryst\software3d\software3d\assets\textures\metal.jpg
+azimuth 45
+elevation 45
+ambientStrength 0.2
+showOutline 0
+backgroundPath 
+objPath C:\Users\tryst\software3d\software3d\assets\models\donut.obj
