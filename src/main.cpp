@@ -32,7 +32,7 @@ void cursor_pos_callback(GLFWwindow *window, double xposIn, double yposIn);
 
 const int VIEWPORT_WIDTH = 800;
 const int VIEWPORT_HEIGHT = 600;
-const int PANEL_WIDTH = 200;
+const int PANEL_WIDTH = 260;
 const int WINDOW_WIDTH = VIEWPORT_WIDTH + PANEL_WIDTH;
 const int WINDOW_HEIGHT = VIEWPORT_HEIGHT;
 const char *WINDOW_TITLE = "Software Rasterizer";
@@ -126,7 +126,8 @@ GLFWwindow *InitializeWindow()
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
     ImGui::StyleColorsDark();
-
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowPadding = ImVec2(12, 12);
     NFD_Init();
 
     return window;
@@ -579,6 +580,8 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         ImGui::Text("Shading");
         ImGui::Separator();
         ImGui::Checkbox("Use Texture", &useTexture);
+                 if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Enable/Disable texture if one is loaded.");
         if (texLoaded)
             ImGui::TextWrapped("%s", std::filesystem::path(texPath).filename().string().c_str());
         else
@@ -605,6 +608,8 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                     std::cerr << "Warning: texture failed to load: " << texPath << "\n";
             }
         }
+          if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Load a texture onto the mesh.\nSupported formats: JPG, JPEG, PNG, BMP");
         if (texLoaded && ImGui::Button("Clear Texture", ImVec2(-1, 0)))
         {
             texPath.clear();
@@ -612,12 +617,25 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             texLoaded = false;
             useTexture = false;
         }
-        ImGui::Checkbox("Show Outline", &showOutline);
-        ImGui::ColorEdit3("Color", meshColor);
-        ImGui::SliderFloat("Azimuth", &lightAzimuth, 0.0f, 360.0f);
-        ImGui::SliderFloat("Elevation", &lightElevation, -90.0f, 90.0f);
-        ImGui::SliderFloat("Ambient", &ambientStrength, 0.0f, 1.0f);
+        if (texLoaded && ImGui::IsItemHovered())
+    ImGui::SetTooltip("Removes the currently loaded texture.");
+        
 
+        ImGui::Checkbox("Show Wireframe Outline", &showOutline);
+                 if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Enables/Disables the Wireframe Outline.");
+        ImGui::ColorEdit3("Color", meshColor);
+            ImGui::Text("Azimuth");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::SliderFloat("##Azimuth", &lightAzimuth, 0.0f, 360.0f);
+
+            ImGui::Text("Elevation");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::SliderFloat("##Elevation", &lightElevation, -90.0f, 90.0f);
+
+            ImGui::Text("Ambient");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::SliderFloat("##Ambient", &ambientStrength, 0.0f, 1.0f);
         ImGui::Spacing();
         ImGui::Text("Background");
         ImGui::Separator();
@@ -644,12 +662,15 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 loadBackground(bgPath);
             }
         }
+         if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Add a background");
         if (hasBg && ImGui::Button("Clear Background", ImVec2(-1, 0)))
         {
             bgPath.clear();
             hasBg = false;
             bgPixels.clear();
         }
+
 
         ImGui::Spacing();
         ImGui::Text("OBJ Loader");
@@ -661,7 +682,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                                std::filesystem::path(loadedFilePath).filename().string().c_str());
 
         ImGui::Spacing();
-        if (ImGui::Button("Open OBJ...", ImVec2(-1, 0)))
+        if (ImGui::Button("Load an OBJ File", ImVec2(-1, 0)))
         {
             nfdu8char_t *outPath = nullptr;
             nfdfilteritem_t filters[] = {{"OBJ Files", "obj"}};
@@ -681,6 +702,8 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 loadMesh(path);
             }
         }
+                 if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Select an OBJ file to load from the device");
         ImGui::Spacing();
         ImGui::Text("Recent Files");
         ImGui::Separator();
@@ -703,6 +726,8 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             recentFilesManager.Clear();
             recentFilesManager.Save();
         }
+                 if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Clears recent files.");
 
         // Mesh Stats
         ImGui::Spacing();
