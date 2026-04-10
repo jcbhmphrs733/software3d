@@ -223,7 +223,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
     std::string texPath = appState.texturePath;
     bool texLoaded = false;
     
-    // Safely load initial texture if it exists
+
     if (!texPath.empty() && std::filesystem::exists(texPath)) {
         texLoaded = tex.load(texPath);
         if (!texLoaded)
@@ -247,8 +247,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
     std::string bgPath = appState.backgroundPath;
     std::vector<unsigned char> bgPixels;
     bool hasBg = false;
-    
-    // Deferred loading paths (Push/Pop queues)
+
     std::string pendingLoadPath = "";
     std::string pendingTexturePath = "";
     std::string pendingBgPath = "";
@@ -612,7 +611,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 texArgs.defaultPath  = texDir.c_str();
                 if (NFD_OpenDialogU8_With(&outPath, &texArgs) == NFD_OKAY)
                 {
-                    pendingTexturePath = outPath; // Push to deferred load
+                    pendingTexturePath = outPath; 
                     NFD_FreePathU8(outPath);
                 }
             }
@@ -664,7 +663,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             bgArgs.defaultPath = bgDir.c_str();
             if (NFD_OpenDialogU8_With(&outPath, &bgArgs) == NFD_OKAY)
             {
-                pendingBgPath = outPath; // Push to deferred load
+                pendingBgPath = outPath;
                 NFD_FreePathU8(outPath);
             }
         }
@@ -705,7 +704,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 std::string path = outPath;
                 NFD_FreePathU8(outPath);
                 recentFilesManager.Add(path);
-                pendingLoadPath = path; // Push to deferred load
+                pendingLoadPath = path; 
             }
         }
         if (ImGui::IsItemHovered())
@@ -724,7 +723,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             for (const auto &filepath : recentFilesManager.GetFiles())
             {
                 if (ImGui::Button(std::filesystem::path(filepath).filename().string().c_str()))
-                    pendingLoadPath = filepath; // Push to deferred load
+                    pendingLoadPath = filepath; 
             }
         }
 
@@ -780,7 +779,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         appState.backgroundPath = bgPath;
         appState.objPath = loadedFilePath;
 
-        // Process Deferred OBJ Loading
         if (!pendingLoadPath.empty())
         {
             if (std::filesystem::exists(pendingLoadPath)) {
@@ -791,7 +789,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             pendingLoadPath.clear();
         }
 
-        // Process Deferred Texture Loading
+       
         if (!pendingTexturePath.empty())
         {
             if (std::filesystem::exists(pendingTexturePath)) {
@@ -800,7 +798,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 texLoaded = tex.load(texPath);
                 
                 if (texLoaded) {
-                    useTexture = true; // Auto-enable the texture box
+                    useTexture = true; 
                 } else {
                     std::cerr << "Warning: texture failed to load: " << texPath << "\n";
                 }
@@ -810,7 +808,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             pendingTexturePath.clear();
         }
 
-        // Process Deferred Background Loading
+       
         if (!pendingBgPath.empty())
         {
             if (std::filesystem::exists(pendingBgPath)) {
@@ -830,9 +828,8 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
 
 void Cleanup(GLFWwindow *window)
 {
-    // Save Recent Files on Exit
+  
     recentFilesManager.Save();
-    // Save the current state of the application (color, texture usage, rotation) in the config file when closing the application
     appState.Save();
 
     NFD_Quit();
