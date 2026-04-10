@@ -458,7 +458,11 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         }
         else
         {
-            uint32_t color = ((unsigned char)(meshColor[0] * 255) << 24) | ((unsigned char)(meshColor[1] * 255) << 16) | ((unsigned char)(meshColor[2] * 255) << 8) | 0xFF;
+           
+            uint32_t r = (uint32_t)(std::max(0.0f, std::min(1.0f, meshColor[0])) * 255.0f);
+            uint32_t g = (uint32_t)(std::max(0.0f, std::min(1.0f, meshColor[1])) * 255.0f);
+            uint32_t b = (uint32_t)(std::max(0.0f, std::min(1.0f, meshColor[2])) * 255.0f);
+            uint32_t color = (r << 24) | (g << 16) | (b << 8) | 0xFF;
 
             float az = lightAzimuth * (3.14159265f / 180.0f);
             float el = lightElevation * (3.14159265f / 180.0f);

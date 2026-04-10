@@ -64,14 +64,17 @@ void DrawTriangle(Framebuffer& fb,
                     float final_v = v_interp / inv_w_interp;
 
                     uint32_t texel = tex->sample(final_u, final_v);
-                    unsigned char r = (unsigned char)(((texel >> 24) & 0xFF) * shade);
-                    unsigned char g = (unsigned char)(((texel >> 16) & 0xFF) * shade);
-                    unsigned char b = (unsigned char)(((texel >>  8) & 0xFF) * shade);
-                    shadedColor = (r << 24) | (g << 16) | (b << 8) | 0xFF;
+                    
+                    // Fixed: Cast to uint32_t instead of unsigned char
+                    uint32_t tr = (uint32_t)(((texel >> 24) & 0xFF) * shade);
+                    uint32_t tg = (uint32_t)(((texel >> 16) & 0xFF) * shade);
+                    uint32_t tb = (uint32_t)(((texel >>  8) & 0xFF) * shade);
+                    shadedColor = (tr << 24) | (tg << 16) | (tb << 8) | 0xFF;
                 } else {
-                    unsigned char r = (unsigned char)(((color >> 24) & 0xFF) * shade);
-                    unsigned char g = (unsigned char)(((color >> 16) & 0xFF) * shade);
-                    unsigned char b = (unsigned char)(((color >>  8) & 0xFF) * shade);
+                    // Fixed: Cast to uint32_t instead of unsigned char
+                    uint32_t r = (uint32_t)(((color >> 24) & 0xFF) * shade);
+                    uint32_t g = (uint32_t)(((color >> 16) & 0xFF) * shade);
+                    uint32_t b = (uint32_t)(((color >>  8) & 0xFF) * shade);
                     shadedColor = (r << 24) | (g << 16) | (b << 8) | 0xFF;
                 }
 
