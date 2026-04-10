@@ -1,7 +1,4 @@
-<<<<<<< HEAD
+C:\Users\tryst\software3d\software3d\assets\models\cube.obj
+C:\Users\tryst\software3d\software3d\assets\models\cube.obj
 C:\Users\tryst\software3d\software3d\assets\models\donut.obj
-C:\Users\tryst\software3d\software3d\assets\models\monkey.obj
-C:\Users\tryst\software3d\software3d\assets\models\monkey.obj
-=======
-
->>>>>>> 321f9477f761ade8ed8237cb1629a823052211e5
+assets/models/monkey.obj

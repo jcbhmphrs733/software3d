@@ -27,15 +27,10 @@ void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void processInput(GLFWwindow *window);
 void UpdateQuadVertices(int windowWidth);
 void scroll_callback(GLFWwindow *window, double xoffset, double yoffset);
-void SetupMSAA();
 void mouse_button_callback(GLFWwindow *window, int button, int action, int mods);
 void cursor_pos_callback(GLFWwindow *window, double xposIn, double yposIn);
 
-const int VIEWPORT_WIDTH = 800;
-const int VIEWPORT_HEIGHT = 600;
 const int PANEL_WIDTH = 260;
-const int WINDOW_WIDTH = VIEWPORT_WIDTH + PANEL_WIDTH;
-const int WINDOW_HEIGHT = VIEWPORT_HEIGHT;
 const char *WINDOW_TITLE = "Software Rasterizer";
 
 // Consolidated Global Window and Viewport Variables
@@ -43,8 +38,6 @@ int currentWindowWidth = 1000;
 int currentWindowHeight = 600;
 int viewportWidth = currentWindowWidth - PANEL_WIDTH;
 int viewportHeight = currentWindowHeight;
-
-GLuint msFBO, msTexture;
 
 GLuint shaderProgram, VAO, VBO, EBO, textureID;
 Framebuffer *fb = nullptr;
@@ -135,18 +128,6 @@ GLFWwindow *InitializeWindow()
     return window;
 }
 
-void SetupMSAA() {
-    glGenFramebuffers(1, &msFBO);
-    glBindFramebuffer(GL_FRAMEBUFFER, msFBO);
-
-    glGenTextures(1, &msTexture);
-    glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, msTexture);
-    glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, 4, GL_RGBA, currentWindowWidth, currentWindowHeight, GL_TRUE);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D_MULTISAMPLE, msTexture, 0);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-}
-
 void SetupResources()
 {
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -165,25 +146,12 @@ void SetupResources()
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-
     float meshColor[3] = { appState.meshColor[0], appState.meshColor[1], appState.meshColor[2] };
     if (meshColor[0] == 0.0f && meshColor[1] == 0.0f && meshColor[2] == 0.0f) {
         meshColor[0] = 1.0f; meshColor[1] = 1.0f; meshColor[2] = 1.0f;
     }
 
-    float lightAzimuth = appState.azimuth;
-    float lightElevation = appState.elevation;
-    float ambientStrength = appState.ambientStrength;
-
-    if (lightAzimuth == 0.0f && lightElevation == 0.0f) {
-        lightAzimuth = 45.0f;
-        lightElevation = 45.0f;
-    }
-    if (ambientStrength <= 0.0f) {
-        ambientStrength = 0.25f; 
-    }
-
-    float viewportRight = 1.0f - 2.0f * ((float)PANEL_WIDTH / (float)WINDOW_WIDTH);
+    float viewportRight = 1.0f - 2.0f * ((float)PANEL_WIDTH / (float)currentWindowWidth);
     float vertices[] = {
         viewportRight, 1.0f, 1.0f, 1.0f,
         viewportRight, -1.0f, 1.0f, 0.0f,
@@ -209,15 +177,7 @@ void SetupResources()
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
-    SetupMSAA();
-
     glGenTextures(1, &textureID);
-    glBindTexture(GL_TEXTURE_2D, textureID);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, viewportWidth, viewportHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-
-    fb = new Framebuffer(viewportWidth, viewportHeight);
 }
 
 void UpdateQuadVertices(int windowWidth)
@@ -234,13 +194,12 @@ void UpdateQuadVertices(int windowWidth)
 
 void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std::string initialFilePath)
 {
-    bool useSSAA = false;
     Texture tex;
+    bool useSSAA = false;
     bool useTexture = appState.useTexture;
     std::string texPath = appState.texturePath;
     bool texLoaded = false;
     
-
     if (!texPath.empty() && std::filesystem::exists(texPath)) {
         texLoaded = tex.load(texPath);
         if (!texLoaded)
@@ -252,24 +211,13 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
     std::vector<float> screenDepths(mesh.vertices.size());
     std::vector<float> clipWs(mesh.vertices.size());
 
-    int ssaaFactor = 2;
-    int currentFbWidth = viewportWidth;
-    int currentFbHeight = viewportHeight;
-
-    int internalWidth = currentFbWidth * ssaaFactor;
-    int internalHeight = currentFbHeight * ssaaFactor;
-
-    std::unique_ptr<Framebuffer> ssaaFb = std::make_unique<Framebuffer>(internalWidth, internalHeight);
+    int currentFbWidth = 0;
+    int currentFbHeight = 0;
+    int ssaaFactor = 1;
 
     Mesh currentMesh = mesh;
 
     float meshColor[3] = {appState.meshColor[0], appState.meshColor[1], appState.meshColor[2]};
-    float depthFalloff = appState.depthFalloff;
-
-    bool useDiffuse = appState.diffuseLighting;  
-    float lightAzimuth = appState.azimuth;
-    float lightElevation = appState.elevation;
-    float ambientStrength = appState.ambientStrength;
 
     bool showOutline = appState.showOutline;
     float lightAzimuth = appState.azimuth; 
@@ -292,15 +240,15 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             hasBg = false;
             return;
         }
-        bgPixels.resize((size_t)internalWidth * internalHeight * 4);
-        for (int y = 0; y < internalHeight; ++y)
+        bgPixels.resize((size_t)currentFbWidth * currentFbHeight * 4);
+        for (int y = 0; y < currentFbHeight; ++y)
         {
-            for (int x = 0; x < internalWidth; ++x)
+            for (int x = 0; x < currentFbWidth; ++x)
             {
-                float u = (x + 0.5f) / (float)internalWidth;
-                float v = (y + 0.5f) / (float)internalHeight;
+                float u = (x + 0.5f) / (float)currentFbWidth;
+                float v = (y + 0.5f) / (float)currentFbHeight;
                 uint32_t c = bgTex.sample(u, v);
-                int idx = (y * internalWidth + x) * 4;
+                int idx = (y * currentFbWidth + x) * 4;
                 bgPixels[idx + 0] = (c >> 24) & 0xFF;
                 bgPixels[idx + 1] = (c >> 16) & 0xFF;
                 bgPixels[idx + 2] = (c >>  8) & 0xFF;
@@ -375,25 +323,24 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         processInput(window);
 
         int targetSsaaFactor = useSSAA ? 2 : 1;
+        int targetFbWidth = viewportWidth * targetSsaaFactor;
+        int targetFbHeight = viewportHeight * targetSsaaFactor;
 
-        if (viewportWidth != currentFbWidth || viewportHeight != currentFbHeight || ssaaFactor != targetSsaaFactor)
+        if (currentFbWidth != targetFbWidth || currentFbHeight != targetFbHeight || ssaaFactor != targetSsaaFactor)
         {
-            currentFbWidth = viewportWidth;
-            currentFbHeight = viewportHeight;
+            currentFbWidth = targetFbWidth;
+            currentFbHeight = targetFbHeight;
             ssaaFactor = targetSsaaFactor;
-            
-            internalWidth = currentFbWidth * ssaaFactor;
-            internalHeight = currentFbHeight * ssaaFactor;
-
-            ssaaFb = std::make_unique<Framebuffer>(internalWidth, internalHeight);
             
             delete fb;
             fb = new Framebuffer(currentFbWidth, currentFbHeight);
 
             glBindTexture(GL_TEXTURE_2D, textureID);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, useSSAA ? GL_LINEAR : GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, useSSAA ? GL_LINEAR : GL_NEAREST);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, currentFbWidth, currentFbHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-            if (hasBg)
+            if (hasBg && !bgPath.empty())
             {
                 loadBackground(bgPath);
             }
@@ -404,10 +351,10 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         lastFrameTime = currentFrameTime;
 
         if (hasBg)
-            ssaaFb->blitBackground(bgPixels.data());
+            fb->blitBackground(bgPixels.data());
         else
-            ssaaFb->clear(0x000000FF);
-        ssaaFb->clearDepth();
+            fb->clear(0x000000FF);
+        fb->clearDepth();
 
         Mat4 view = camera.GetViewMatrix();
         Mat4 projection = Mat4::perspective(camera.zoom * 3.14159f / 180.0f, (float)currentFbWidth / (float)currentFbHeight, 0.1f, 100.0f);
@@ -422,9 +369,9 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         {
             float fovY_rad = camera.zoom * (3.14159265f / 180.0f);
             float tanHalf  = tanf(fovY_rad * 0.5f);
-            float aspect   = (float)VIEWPORT_WIDTH / (float)VIEWPORT_HEIGHT;
-            float ndcX = (lastMouseX / (float)VIEWPORT_WIDTH)  * 2.0f - 1.0f;
-            float ndcY = (lastMouseY / (float)VIEWPORT_HEIGHT) * 2.0f - 1.0f;
+            float aspect   = (float)viewportWidth / (float)viewportHeight;
+            float ndcX = (lastMouseX / (float)viewportWidth)  * 2.0f - 1.0f;
+            float ndcY = (lastMouseY / (float)viewportHeight) * 2.0f - 1.0f;
             Vec3 rayDir = (camera.right * (ndcX * aspect * tanHalf)
                          + camera.up   * (ndcY * tanHalf)
                          + camera.front).normalized();
@@ -499,8 +446,8 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             Vec3 ndc = Vec3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
             
             screenVerts[i] = Vec2(
-                (ndc.x + 1.0f) / 2.0f * internalWidth,
-                (1.0f - ndc.y) / 2.0f * internalHeight);
+                (ndc.x + 1.0f) / 2.0f * currentFbWidth,
+                (1.0f - ndc.y) / 2.0f * currentFbHeight);
             screenDepths[i] = (ndc.z + 1.0f) / 2.0f;
             clipWs[i] = clip.w;
         }
@@ -510,14 +457,13 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             for (size_t i = 0; i < indices.size(); i += 3)
             {
                 unsigned int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
-                DrawLine(*ssaaFb, screenVerts[i0], screenVerts[i1], screenDepths[i0], screenDepths[i1], 0xFFFFFFFF);
-                DrawLine(*ssaaFb, screenVerts[i1], screenVerts[i2], screenDepths[i1], screenDepths[i2], 0xFFFFFFFF);
-                DrawLine(*ssaaFb, screenVerts[i2], screenVerts[i0], screenDepths[i2], screenDepths[i0], 0xFFFFFFFF);
+                DrawLine(*fb, screenVerts[i0], screenVerts[i1], screenDepths[i0], screenDepths[i1], 0xFFFFFFFF);
+                DrawLine(*fb, screenVerts[i1], screenVerts[i2], screenDepths[i1], screenDepths[i2], 0xFFFFFFFF);
+                DrawLine(*fb, screenVerts[i2], screenVerts[i0], screenDepths[i2], screenDepths[i0], 0xFFFFFFFF);
             }
         }
         else
         {
-           
             uint32_t r = (uint32_t)(std::max(0.0f, std::min(1.0f, meshColor[0])) * 255.0f);
             uint32_t g = (uint32_t)(std::max(0.0f, std::min(1.0f, meshColor[1])) * 255.0f);
             uint32_t b = (uint32_t)(std::max(0.0f, std::min(1.0f, meshColor[2])) * 255.0f);
@@ -561,7 +507,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
 
                 uint32_t faceColor = (i == debugHitFace) ? 0xFFFF00FF : color;
 
-                DrawTriangle(*ssaaFb, a, b, c,
+                DrawTriangle(*fb, a, b, c,
                              screenDepths[i0], screenDepths[i1], screenDepths[i2],
                              faceColor,
                              lia, lib, lic, ambientStrength,
@@ -579,9 +525,9 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                     float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
                     if (area >= 0.0f)
                         continue;
-                    DrawLine(*ssaaFb, a, b, screenDepths[i0], screenDepths[i1], 0x000000FF);
-                    DrawLine(*ssaaFb, b, c, screenDepths[i1], screenDepths[i2], 0x000000FF);
-                    DrawLine(*ssaaFb, c, a, screenDepths[i2], screenDepths[i0], 0x000000FF);
+                    DrawLine(*fb, a, b, screenDepths[i0], screenDepths[i1], 0x000000FF);
+                    DrawLine(*fb, b, c, screenDepths[i1], screenDepths[i2], 0x000000FF);
+                    DrawLine(*fb, c, a, screenDepths[i2], screenDepths[i0], 0x000000FF);
                 }
             }
         }
@@ -594,11 +540,11 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                                        g_interaction.pivotWorld.z, 1.0f);
             float origX, origY;
             if (pivotClip.w > 0.0f) {
-                origX = ((pivotClip.x / pivotClip.w) + 1.0f) * 0.5f * VIEWPORT_WIDTH;
-                origY = (1.0f - (pivotClip.y / pivotClip.w)) * 0.5f * VIEWPORT_HEIGHT;
+                origX = ((pivotClip.x / pivotClip.w) + 1.0f) * 0.5f * currentFbWidth;
+                origY = (1.0f - (pivotClip.y / pivotClip.w)) * 0.5f * currentFbHeight;
             } else {
                 origX = 40.0f * ssaaFactor;
-                origY = (float)(internalHeight - 40 * ssaaFactor);
+                origY = (float)(currentFbHeight - 40 * ssaaFactor);
             }
             const float axisLen = 25.0f * ssaaFactor;
             Vec3 axisX( g_interaction.rotation.m[0],  g_interaction.rotation.m[1],  g_interaction.rotation.m[2]);
@@ -622,7 +568,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, currentFbWidth, currentFbHeight, 
                         GL_RGBA, GL_UNSIGNED_BYTE, fb->getPixels());
 
-        glBindFramebuffer(GL_FRAMEBUFFER, msFBO);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT); 
         
@@ -631,20 +577,13 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, msFBO);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-        glBlitFramebuffer(0, 0, currentWindowWidth, currentWindowHeight, 
-                        0, 0, currentWindowWidth, currentWindowHeight, 
-                        GL_COLOR_BUFFER_BIT, GL_NEAREST);
-
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::SetNextWindowPos(ImVec2((float)currentFbWidth, 0.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2((float)viewportWidth, 0.0f), ImGuiCond_Always);
         ImGui::SetNextWindowSize(ImVec2((float)PANEL_WIDTH, (float)currentWindowHeight), ImGuiCond_Always);
-        ImGui::Begin("Scene", nullptr,
-                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+        ImGui::Begin("Scene", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
 
         ImGui::Text("Performance");
         ImGui::Separator();
@@ -655,13 +594,14 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         ImGui::Spacing();
         ImGui::Text("Shading & Materials");
         ImGui::Separator();
+        
         ImGui::Checkbox("Use SSAA (Anti-Aliasing)", &useSSAA);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Renders internally at 2x resolution and downsamples via GPU.");
 
         ImGui::ColorEdit3("Mesh Color", meshColor);
         ImGui::Checkbox("Use Texture", &useTexture);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Enable/Disable texture if one is loaded.");
-
+        
         if (texLoaded) {
             ImGui::TextWrapped("Active: %s", std::filesystem::path(texPath).filename().string().c_str());
             if (ImGui::Button("Clear Texture", ImVec2(-1, 0))) {
@@ -689,24 +629,15 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 }
             }
         }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Load a texture onto the mesh.\nSupported formats: JPG, JPEG, PNG, BMP");
-        
-  
-        if (texLoaded && ImGui::IsItemHovered())
-            ImGui::SetTooltip("Removes the currently loaded texture.");
 
         ImGui::Spacing();
         ImGui::Text("Lighting");
         ImGui::Separator();
-
         ImGui::Text("Light Direction");
         ImGui::SetNextItemWidth(-1);
         ImGui::SliderFloat("##Azimuth", &lightAzimuth, 0.0f, 360.0f, "Azimuth: %.1f");
-
         ImGui::SetNextItemWidth(-1);
         ImGui::SliderFloat("##Elevation", &lightElevation, -90.0f, 90.0f, "Elevation: %.1f");
-
         ImGui::Text("Ambient Light");
         ImGui::SetNextItemWidth(-1);
         ImGui::SliderFloat("##Ambient", &ambientStrength, 0.0f, 1.0f, "Strength: %.2f");
@@ -740,8 +671,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 NFD_FreePathU8(outPath);
             }
         }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Add a background");
             
         if (hasBg && ImGui::Button("Clear Background", ImVec2(-1, 0)))
         {
@@ -756,8 +685,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         if (loadedFilePath.empty())
             ImGui::Text("No file loaded");
         else
-            ImGui::TextWrapped("%s",
-                               std::filesystem::path(loadedFilePath).filename().string().c_str());
+            ImGui::TextWrapped("%s", std::filesystem::path(loadedFilePath).filename().string().c_str());
 
         ImGui::Spacing();
         if (ImGui::Button("Load an OBJ File", ImVec2(-1, 0)))
@@ -771,14 +699,12 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             args.filterCount = 1;
             args.parentWindow = parentHandle;
 
-            nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
-            if (result == NFD_OKAY)
+            if (NFD_OpenDialogU8_With(&outPath, &args) == NFD_OKAY)
             {
                 std::string path = outPath;
                 NFD_FreePathU8(outPath);
 
                 recentFilesManager.Add(loadedFilePath);
-
                 recentFilesManager.SetLastFile(loadedFilePath);
                 recentFilesManager.Save();
 
@@ -793,8 +719,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 pendingLoadPath = path; 
             }
         }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Select an OBJ file to load from the device");
         
         ImGui::Spacing();
         ImGui::Text("Recent Files");
@@ -803,10 +727,9 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         for (const auto &filepath : recentFilesManager.GetFiles())
         {
             std::string filename = std::filesystem::path(filepath).filename().string();
-            
-            if (filename.empty())
+            if (!filename.empty())
             {
-                if (ImGui::Button(std::filesystem::path(filepath).filename().string().c_str()))
+                if (ImGui::Button(filename.c_str()))
                     pendingLoadPath = filepath; 
             }
         }
@@ -816,8 +739,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             recentFilesManager.Clear();
             recentFilesManager.Save();
         }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Clears recent files.");
 
         ImGui::Spacing();
         ImGui::Text("Mesh Stats:");
@@ -867,13 +788,10 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         {
             if (std::filesystem::exists(pendingLoadPath)) {
                 loadMesh(pendingLoadPath);
-            } else {
-                std::cerr << "File not found: " << pendingLoadPath << "\n";
             }
             pendingLoadPath.clear();
         }
 
-       
         if (!pendingTexturePath.empty())
         {
             if (std::filesystem::exists(pendingTexturePath)) {
@@ -883,23 +801,16 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 
                 if (texLoaded) {
                     useTexture = true; 
-                } else {
-                    std::cerr << "Warning: texture failed to load: " << texPath << "\n";
                 }
-            } else {
-                std::cerr << "Texture file not found: " << pendingTexturePath << "\n";
             }
             pendingTexturePath.clear();
         }
 
-       
         if (!pendingBgPath.empty())
         {
             if (std::filesystem::exists(pendingBgPath)) {
                 bgPath = pendingBgPath;
                 loadBackground(bgPath);
-            } else {
-                std::cerr << "Background file not found: " << pendingBgPath << "\n";
             }
             pendingBgPath.clear();
         }
@@ -912,7 +823,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
 
 void Cleanup(GLFWwindow *window)
 {
-  
     recentFilesManager.Save();
     appState.Save();
 
@@ -927,9 +837,6 @@ void Cleanup(GLFWwindow *window)
     glDeleteBuffers(1, &EBO);
     glDeleteProgram(shaderProgram);
     glDeleteTextures(1, &textureID);
-
-    glDeleteFramebuffers(1, &msFBO);
-    glDeleteTextures(1, &msTexture);
 
     delete fb;
     glfwTerminate();
@@ -966,6 +873,7 @@ int main()
     recentFilesManager.Save();
     return 0;
 }
+
 void scroll_callback(GLFWwindow* /*window*/, double /*xoffset*/, double yoffset)
 {
     scrollOffset -= (float)yoffset * 0.2f;
@@ -1008,7 +916,7 @@ void cursor_pos_callback(GLFWwindow* /*window*/, double xposIn, double yposIn)
         Vec3 right = camera.right;
         Vec3 up    = camera.up;
         g_interaction.pan = g_interaction.pan + right * (dx * panSpeed)
-                                               + up    * (dy * panSpeed);
+                                              + up    * (dy * panSpeed);
     }
 
     if (g_interaction.draggingRot) {
@@ -1047,7 +955,6 @@ void cursor_pos_callback(GLFWwindow* /*window*/, double xposIn, double yposIn)
         g_interaction.rotation = newR;
     }
 }
-
 
 void processInput(GLFWwindow *window)
 {
@@ -1147,7 +1054,4 @@ void framebuffer_size_callback(GLFWwindow *window, int width, int height)
 
     glViewport(0, 0, width, height);
     UpdateQuadVertices(width);
-
-    glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, msTexture);
-    glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, 4, GL_RGBA, width, height, GL_TRUE);
 }
