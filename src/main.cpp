@@ -32,7 +32,7 @@ void cursor_pos_callback(GLFWwindow *window, double xposIn, double yposIn);
 
 const int VIEWPORT_WIDTH = 800;
 const int VIEWPORT_HEIGHT = 600;
-const int PANEL_WIDTH = 200;
+const int PANEL_WIDTH = 260;
 const int WINDOW_WIDTH = VIEWPORT_WIDTH + PANEL_WIDTH;
 const int WINDOW_HEIGHT = VIEWPORT_HEIGHT;
 const char *WINDOW_TITLE = "Software Rasterizer";
@@ -126,7 +126,8 @@ GLFWwindow *InitializeWindow()
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
     ImGui::StyleColorsDark();
-
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowPadding = ImVec2(12, 12);
     NFD_Init();
 
     return window;
@@ -149,6 +150,24 @@ void SetupResources()
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
+
+
+    float meshColor[3] = { appState.meshColor[0], appState.meshColor[1], appState.meshColor[2] };
+    if (meshColor[0] == 0.0f && meshColor[1] == 0.0f && meshColor[2] == 0.0f) {
+        meshColor[0] = 1.0f; meshColor[1] = 1.0f; meshColor[2] = 1.0f;
+    }
+
+    float lightAzimuth = appState.azimuth;
+    float lightElevation = appState.elevation;
+    float ambientStrength = appState.ambientStrength;
+
+    if (lightAzimuth == 0.0f && lightElevation == 0.0f) {
+        lightAzimuth = 45.0f;
+        lightElevation = 45.0f;
+    }
+    if (ambientStrength <= 0.0f) {
+        ambientStrength = 0.25f; 
+    }
 
     float viewportRight = 1.0f - 2.0f * ((float)PANEL_WIDTH / (float)WINDOW_WIDTH);
     float vertices[] = {
@@ -196,14 +215,21 @@ void UpdateQuadVertices(int windowWidth)
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
 }
+
 void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std::string initialFilePath)
 {
     Texture tex;
     bool useTexture = appState.useTexture;
     std::string texPath = appState.texturePath;
-    bool texLoaded = !texPath.empty() && tex.load(texPath);
-    if (!texPath.empty() && !texLoaded)
-        std::cerr << "Warning: texture failed to load: " << texPath << "\n";
+    bool texLoaded = false;
+    
+
+    if (!texPath.empty() && std::filesystem::exists(texPath)) {
+        texLoaded = tex.load(texPath);
+        if (!texLoaded)
+            std::cerr << "Warning: texture failed to load: " << texPath << "\n";
+    }
+
     std::vector<unsigned int> indices = mesh.indices;
     std::vector<Vec2> screenVerts(mesh.vertices.size());
     std::vector<float> screenDepths(mesh.vertices.size());
@@ -211,19 +237,20 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
 
     Mesh currentMesh = mesh;
 
-    // UI-controlled shading parameters
     float meshColor[3] = {appState.meshColor[0], appState.meshColor[1], appState.meshColor[2]};
 
-    // Lighting parameters
     bool showOutline = appState.showOutline;
-    float lightAzimuth = appState.azimuth;            // degrees, horizontal rotation around Y axis
-    float lightElevation = appState.elevation;        // degrees above the horizon
-    float ambientStrength = appState.ambientStrength; // minimum brightness [0,1]
+    float lightAzimuth = appState.azimuth; 
+    float lightElevation = appState.elevation; 
+    float ambientStrength = appState.ambientStrength; 
 
-    // Background image — pre-scaled to VIEWPORT_WIDTH x VIEWPORT_HEIGHT once at load time
     std::string bgPath = appState.backgroundPath;
     std::vector<unsigned char> bgPixels;
     bool hasBg = false;
+
+    std::string pendingLoadPath = "";
+    std::string pendingTexturePath = "";
+    std::string pendingBgPath = "";
 
     auto loadBackground = [&](const std::string &path)
     {
@@ -251,11 +278,9 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         hasBg = true;
     };
 
-    if (!bgPath.empty())
+    if (!bgPath.empty() && std::filesystem::exists(bgPath))
         loadBackground(bgPath);
 
-    // Computes one unit face normal per triangle and stores in m.faceNormals.
-    // For triangle (A,B,C): e1=B-A, e2=C-A, normal=normalize(cross(e1,e2)).
     auto computeFaceNormals = [](Mesh &m)
     {
         size_t faceCount = m.indices.size() / 3;
@@ -271,7 +296,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         }
     };
 
-    // Average surrounding face normals into each vertex for Gouraud shading
     auto computeVertexNormals = [](Mesh &m)
     {
         m.vertexNormals.assign(m.vertices.size(), Vec3(0.0f, 0.0f, 0.0f));
@@ -335,7 +359,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                                            g_interaction.pan.z + fwdOff.z))
                       * g_interaction.rotation;
 
-        // On the first frame of LMB press, raycast through the cursor to set the arcball pivot.
         static bool prevLmbDown = false;
         if (lmbDown && !prevLmbDown)
         {
@@ -343,11 +366,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             float tanHalf  = tanf(fovY_rad * 0.5f);
             float aspect   = (float)VIEWPORT_WIDTH / (float)VIEWPORT_HEIGHT;
             float ndcX = (lastMouseX / (float)VIEWPORT_WIDTH)  * 2.0f - 1.0f;
-            // Y: match the mesh rendering convention ((1-ndc)*0.5*H → row, row displayed at H-row)
-            // GLFW y=0 is visual top; the mesh maps ndc_y=+1 to framebuffer row 0 (visual bottom),
-            // so the correct NDC y for a click is (y/H)*2-1, NOT 1-(y/H)*2.
             float ndcY = (lastMouseY / (float)VIEWPORT_HEIGHT) * 2.0f - 1.0f;
-            // Build world-space ray from camera through the clicked pixel
             Vec3 rayDir = (camera.right * (ndcX * aspect * tanHalf)
                          + camera.up   * (ndcY * tanHalf)
                          + camera.front).normalized();
@@ -368,11 +387,10 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 Vec3 wA(wA4.x, wA4.y, wA4.z);
                 Vec3 wB(wB4.x, wB4.y, wB4.z);
                 Vec3 wC(wC4.x, wC4.y, wC4.z);
-                // Möller–Trumbore intersection (front-face only, matching the renderer's back-face cull)
                 Vec3 e1 = wB - wA, e2 = wC - wA;
                 Vec3 h   = rayDir.cross(e2);
                 float det = e1.dot(h);
-                if (det < 1e-6f) continue;  // skip back-facing and parallel triangles
+                if (det < 1e-6f) continue;
                 float invDet = 1.0f / det;
                 Vec3  s = rayOrigin - wA;
                 float u = s.dot(h) * invDet;
@@ -393,7 +411,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 g_interaction.pivotWorld = hitPoint;
             else
             {
-                // Place pivot on ray at the midpoint depth between nearest and farthest vertex
                 float tMin = 1e30f, tMax = -1e30f;
                 for (size_t vi = 0; vi < currentMesh.vertices.size(); ++vi)
                 {
@@ -443,12 +460,10 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         {
             uint32_t color = ((unsigned char)(meshColor[0] * 255) << 24) | ((unsigned char)(meshColor[1] * 255) << 16) | ((unsigned char)(meshColor[2] * 255) << 8) | 0xFF;
 
-            // Build light direction from GUI azimuth/elevation angles
             float az = lightAzimuth * (3.14159265f / 180.0f);
             float el = lightElevation * (3.14159265f / 180.0f);
-            Vec3 lightDir = Vec3(cosf(el) * sinf(az), sinf(el), cosf(el) * cosf(az)).normalized();
+            Vec3 lightDir = Vec3(cosf(el) * sinf(az), sinf(el), -cosf(el) * cosf(az)).normalized();
 
-            // Pre-compute per-vertex light intensity for this frame (model matrix is constant)
             size_t vertCount = currentMesh.vertexNormals.size();
             std::vector<float> vertLightIntensity(vertCount, 0.0f);
             for (size_t v = 0; v < vertCount; ++v)
@@ -461,7 +476,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 vertLightIntensity[v] = (d > 0.0f) ? d : 0.0f;
             }
 
-            // Pass 1: fills
             for (size_t i = 0; i < indices.size(); i += 3)
             {
                 unsigned int i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2];
@@ -482,7 +496,6 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                     uvc = currentMesh.uvs[currentMesh.uvIndices[i + 2]];
                 }
 
-                // Debug: highlight the raycasted hit face in yellow
                 uint32_t faceColor = (i == debugHitFace) ? 0xFFFF00FF : color;
 
                 DrawTriangle(*fb, a, b, c,
@@ -510,10 +523,8 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             }
         }
 
-        // Draw trihedron (object local X/Y/Z axes) at the pivot point while LMB dragging
         if (g_interaction.draggingRot)
         {
-            // pivotWorld is already in world space — project with VP (not MVP)
             Mat4 VP = projection * view;
             Vec4 pivotClip = VP * Vec4(g_interaction.pivotWorld.x,
                                        g_interaction.pivotWorld.y,
@@ -521,22 +532,15 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             float origX, origY;
             if (pivotClip.w > 0.0f) {
                 origX = ((pivotClip.x / pivotClip.w) + 1.0f) * 0.5f * VIEWPORT_WIDTH;
-                // Use same Y convention as mesh rendering: (1-ndc)*0.5*H
                 origY = (1.0f - (pivotClip.y / pivotClip.w)) * 0.5f * VIEWPORT_HEIGHT;
             } else {
                 origX = 40.0f;
                 origY = (float)(VIEWPORT_HEIGHT - 40);
             }
             const float axisLen = 25.0f;
-            // Extract local axes from rotation matrix (column-major: col i = m[i*4..i*4+2])
-            // Map to user convention: X=right, Y=forward(into screen), Z=up
-            //   User X (red)   = column 0 (world X)
-            //   User Y (green) = -column 2 (world -Z = forward away from camera)
-            //   User Z (blue)  = column 1 (world Y = up)
             Vec3 axisX( g_interaction.rotation.m[0],  g_interaction.rotation.m[1],  g_interaction.rotation.m[2]);
             Vec3 axisY(-g_interaction.rotation.m[8], -g_interaction.rotation.m[9], -g_interaction.rotation.m[10]);
             Vec3 axisZ( g_interaction.rotation.m[4],  g_interaction.rotation.m[5],  g_interaction.rotation.m[6]);
-            // Project each axis through view to a 2D screen offset
             Mat4 viewMat = camera.GetViewMatrix();
             auto projectAxis = [&](Vec3 axis) -> Vec2 {
                 Vec4 v = viewMat * Vec4(axis.x, axis.y, axis.z, 0.0f);
@@ -546,9 +550,9 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             Vec2 px = projectAxis(axisX);
             Vec2 py = projectAxis(axisY);
             Vec2 pz = projectAxis(axisZ);
-            DrawLine(*fb, origin2D, Vec2(origX + px.x, origY + px.y), 0.0f, 0.0f, 0xFF2020FF); // X red
-            DrawLine(*fb, origin2D, Vec2(origX + py.x, origY + py.y), 0.0f, 0.0f, 0x20FF20FF); // Y green (forward)
-            DrawLine(*fb, origin2D, Vec2(origX + pz.x, origY + pz.y), 0.0f, 0.0f, 0x2080FFFF); // Z blue (up)
+            DrawLine(*fb, origin2D, Vec2(origX + px.x, origY + px.y), 0.0f, 0.0f, 0xFF2020FF); 
+            DrawLine(*fb, origin2D, Vec2(origX + py.x, origY + py.y), 0.0f, 0.0f, 0x20FF20FF); 
+            DrawLine(*fb, origin2D, Vec2(origX + pz.x, origY + pz.y), 0.0f, 0.0f, 0x2080FFFF); 
         }
 
         glBindTexture(GL_TEXTURE_2D, textureID);
@@ -576,48 +580,67 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         ImGui::Text("Frame time: %.2f ms", tracker.GetDeltaTime() * 1000.0f);
 
         ImGui::Spacing();
-        ImGui::Text("Shading");
+        ImGui::Spacing();
+        ImGui::Text("Shading & Materials");
         ImGui::Separator();
+
+        ImGui::ColorEdit3("Mesh Color", meshColor);
         ImGui::Checkbox("Use Texture", &useTexture);
-        if (texLoaded)
-            ImGui::TextWrapped("%s", std::filesystem::path(texPath).filename().string().c_str());
-        else
-            ImGui::Text("No texture loaded");
-        if (ImGui::Button("Select Texture...", ImVec2(-1, 0)))
-        {
-            nfdu8char_t *outPath = nullptr;
-            nfdfilteritem_t texFilters[] = {{"Images", "jpg,jpeg,png,bmp"}};
-            nfdwindowhandle_t texHandle = {};
-            NFD_GetNativeWindowFromGLFWWindow(window, &texHandle);
-            std::string texDir = std::filesystem::absolute("assets/textures").string();
-            nfdopendialogu8args_t texArgs = {};
-            texArgs.filterList   = texFilters;
-            texArgs.filterCount  = 1;
-            texArgs.parentWindow = texHandle;
-            texArgs.defaultPath  = texDir.c_str();
-            if (NFD_OpenDialogU8_With(&outPath, &texArgs) == NFD_OKAY)
-            {
-                texPath = outPath;
-                NFD_FreePathU8(outPath);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Enable/Disable texture if one is loaded.");
+
+        if (texLoaded) {
+            ImGui::TextWrapped("Active: %s", std::filesystem::path(texPath).filename().string().c_str());
+            if (ImGui::Button("Clear Texture", ImVec2(-1, 0))) {
+                texPath.clear();
                 tex.clear();
-                texLoaded = tex.load(texPath);
-                if (!texLoaded)
-                    std::cerr << "Warning: texture failed to load: " << texPath << "\n";
+                texLoaded = false;
+                useTexture = false;
+            }
+        } else {
+            if (ImGui::Button("Select Texture...", ImVec2(-1, 0))) {
+                nfdu8char_t *outPath = nullptr;
+                nfdfilteritem_t texFilters[] = {{"Images", "jpg,jpeg,png,bmp"}};
+                nfdwindowhandle_t texHandle = {};
+                NFD_GetNativeWindowFromGLFWWindow(window, &texHandle);
+                std::string texDir = std::filesystem::absolute("assets/textures").string();
+                nfdopendialogu8args_t texArgs = {};
+                texArgs.filterList   = texFilters;
+                texArgs.filterCount  = 1;
+                texArgs.parentWindow = texHandle;
+                texArgs.defaultPath  = texDir.c_str();
+                if (NFD_OpenDialogU8_With(&outPath, &texArgs) == NFD_OKAY)
+                {
+                    pendingTexturePath = outPath; 
+                    NFD_FreePathU8(outPath);
+                }
             }
         }
-        if (texLoaded && ImGui::Button("Clear Texture", ImVec2(-1, 0)))
-        {
-            texPath.clear();
-            tex.clear();
-            texLoaded = false;
-            useTexture = false;
-        }
-        ImGui::Checkbox("Show Outline", &showOutline);
-        ImGui::ColorEdit3("Color", meshColor);
-        ImGui::SliderFloat("Azimuth", &lightAzimuth, 0.0f, 360.0f);
-        ImGui::SliderFloat("Elevation", &lightElevation, -90.0f, 90.0f);
-        ImGui::SliderFloat("Ambient", &ambientStrength, 0.0f, 1.0f);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Load a texture onto the mesh.\nSupported formats: JPG, JPEG, PNG, BMP");
+        
+  
+        if (texLoaded && ImGui::IsItemHovered())
+            ImGui::SetTooltip("Removes the currently loaded texture.");
 
+        ImGui::Spacing();
+        ImGui::Text("Lighting");
+        ImGui::Separator();
+
+        ImGui::Text("Light Direction");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::SliderFloat("##Azimuth", &lightAzimuth, 0.0f, 360.0f, "Azimuth: %.1f");
+
+        ImGui::SetNextItemWidth(-1);
+        ImGui::SliderFloat("##Elevation", &lightElevation, -90.0f, 90.0f, "Elevation: %.1f");
+
+        ImGui::Text("Ambient Light");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::SliderFloat("##Ambient", &ambientStrength, 0.0f, 1.0f, "Strength: %.2f");
+
+        ImGui::Spacing();
+        ImGui::Checkbox("Show Wireframe Overlay", &showOutline);
+        
         ImGui::Spacing();
         ImGui::Text("Background");
         ImGui::Separator();
@@ -625,6 +648,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             ImGui::TextWrapped("%s", std::filesystem::path(bgPath).filename().string().c_str());
         else
             ImGui::Text("No background");
+            
         if (ImGui::Button("Select Background...", ImVec2(-1, 0)))
         {
             nfdu8char_t *outPath = nullptr;
@@ -639,11 +663,13 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             bgArgs.defaultPath = bgDir.c_str();
             if (NFD_OpenDialogU8_With(&outPath, &bgArgs) == NFD_OKAY)
             {
-                bgPath = outPath;
+                pendingBgPath = outPath;
                 NFD_FreePathU8(outPath);
-                loadBackground(bgPath);
             }
         }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Add a background");
+            
         if (hasBg && ImGui::Button("Clear Background", ImVec2(-1, 0)))
         {
             bgPath.clear();
@@ -661,7 +687,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                                std::filesystem::path(loadedFilePath).filename().string().c_str());
 
         ImGui::Spacing();
-        if (ImGui::Button("Open OBJ...", ImVec2(-1, 0)))
+        if (ImGui::Button("Load an OBJ File", ImVec2(-1, 0)))
         {
             nfdu8char_t *outPath = nullptr;
             nfdfilteritem_t filters[] = {{"OBJ Files", "obj"}};
@@ -678,9 +704,12 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
                 std::string path = outPath;
                 NFD_FreePathU8(outPath);
                 recentFilesManager.Add(path);
-                loadMesh(path);
+                pendingLoadPath = path; 
             }
         }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Select an OBJ file to load from the device");
+        
         ImGui::Spacing();
         ImGui::Text("Recent Files");
         ImGui::Separator();
@@ -694,7 +723,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             for (const auto &filepath : recentFilesManager.GetFiles())
             {
                 if (ImGui::Button(std::filesystem::path(filepath).filename().string().c_str()))
-                    loadMesh(filepath);
+                    pendingLoadPath = filepath; 
             }
         }
 
@@ -703,8 +732,9 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
             recentFilesManager.Clear();
             recentFilesManager.Save();
         }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Clears recent files.");
 
-        // Mesh Stats
         ImGui::Spacing();
         ImGui::Text("Mesh Stats:");
         ImGui::Separator();
@@ -736,8 +766,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         ImGui::End();
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-        // Sync live UI values back to appState each frame
+        
         appState.meshColor[0] = meshColor[0];
         appState.meshColor[1] = meshColor[1];
         appState.meshColor[2] = meshColor[2];
@@ -748,18 +777,59 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         appState.ambientStrength = ambientStrength;
         appState.showOutline = showOutline;
         appState.backgroundPath = bgPath;
-        appState.texturePath = texPath;
         appState.objPath = loadedFilePath;
+
+        if (!pendingLoadPath.empty())
+        {
+            if (std::filesystem::exists(pendingLoadPath)) {
+                loadMesh(pendingLoadPath);
+            } else {
+                std::cerr << "File not found: " << pendingLoadPath << "\n";
+            }
+            pendingLoadPath.clear();
+        }
+
+       
+        if (!pendingTexturePath.empty())
+        {
+            if (std::filesystem::exists(pendingTexturePath)) {
+                tex.clear();
+                texPath = pendingTexturePath;
+                texLoaded = tex.load(texPath);
+                
+                if (texLoaded) {
+                    useTexture = true; 
+                } else {
+                    std::cerr << "Warning: texture failed to load: " << texPath << "\n";
+                }
+            } else {
+                std::cerr << "Texture file not found: " << pendingTexturePath << "\n";
+            }
+            pendingTexturePath.clear();
+        }
+
+       
+        if (!pendingBgPath.empty())
+        {
+            if (std::filesystem::exists(pendingBgPath)) {
+                bgPath = pendingBgPath;
+                loadBackground(bgPath);
+            } else {
+                std::cerr << "Background file not found: " << pendingBgPath << "\n";
+            }
+            pendingBgPath.clear();
+        }
 
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
 }
+
+
 void Cleanup(GLFWwindow *window)
 {
-    // Save Recent Files on Exit
+  
     recentFilesManager.Save();
-    // Save the current state of the application (color, texture usage, rotation) in the config file when closing the application
     appState.Save();
 
     NFD_Quit();
@@ -793,6 +863,10 @@ int main()
     else
         initialFilePath = "assets/models/monkey.obj";
 
+    if (!std::filesystem::exists(initialFilePath)) {
+        initialFilePath = "assets/models/monkey.obj";
+    }
+
     Mesh mesh = loader.load(initialFilePath);
 
     GLFWwindow *window = InitializeWindow();
@@ -806,7 +880,6 @@ int main()
     recentFilesManager.Save();
     return 0;
 }
-
 void scroll_callback(GLFWwindow* /*window*/, double /*xoffset*/, double yoffset)
 {
     // Positive yoffset = scroll up = move object away; negative = closer
