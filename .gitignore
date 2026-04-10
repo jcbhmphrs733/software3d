@@ -29,3 +29,8 @@ cmake-build*/
 # vscode temporary files
 .vscode/*.log
 .vscode/*
+
+imgui.ini
+recent_files.txt
+app_state.txt
+app_state.txt

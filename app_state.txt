@@ -1,9 +1,9 @@
-meshColor 1 1 1
+meshColor 0.955882 0.955882 0.955882
 useTexture 0
-texturePath /home/haithcock/Desktop/CSE499/3drasterizer/software3d/assets/textures/metal.jpg
-azimuth 245.9
-elevation 63.4
-ambientStrength 0.3
+texturePath C:\Users\tryst\software3d\software3d\assets\textures\metal.jpg
+azimuth 187.4
+elevation -34.1
+ambientStrength 0.15
 showOutline 0
-backgroundPath /home/haithcock/Desktop/CSE499/3drasterizer/software3d/assets/backgrounds/bg3.jpg
-objPath assets/models/monkey.obj
+backgroundPath 
+objPath C:\Users\tryst\software3d\software3d\assets\models\cube.obj
