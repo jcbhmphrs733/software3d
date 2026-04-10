@@ -21,6 +21,7 @@
 #include "RecentFilesManager.h"
 #include "AppState.h"
 #include "camera.h"
+#include "ui/style.h"
 
 // Forward declarations
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
@@ -126,8 +127,7 @@ GLFWwindow *InitializeWindow()
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
     ImGui::StyleColorsDark();
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowPadding = ImVec2(12, 12);
+    ApplyStyle();
     NFD_Init();
 
     return window;
