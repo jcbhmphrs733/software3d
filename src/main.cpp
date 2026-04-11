@@ -53,7 +53,6 @@ float lastFrameTime = 0.0f;
 float lastMouseX = 0.0f;
 float lastMouseY = 0.0f;
 bool  lmbDown    = false;   // left button held
-bool  rmbDown    = false;   // right button held
 
 // Scroll-based object depth offset (along camera forward axis)
 float scrollOffset = 0.0f;
@@ -73,6 +72,24 @@ size_t debugHitFace = SIZE_MAX; // index into indices[] of the last raycasted tr
 RecentFilesManager recentFilesManager;
 // Save the State of the application (color, texture usage, rotation) in a config file
 AppState appState;
+
+// Shared axis-angle rotation helper used by mouse drag, keyboard rotation, and idle spin paths.
+static Mat4 MakeRodrigues(const Vec3& axis, float angle)
+{
+    float c = cosf(angle);
+    float s = sinf(angle);
+    Mat4 r = Mat4::identity();
+    r.m[0]  = c + axis.x * axis.x * (1 - c);
+    r.m[4]  = axis.x * axis.y * (1 - c) - axis.z * s;
+    r.m[8]  = axis.x * axis.z * (1 - c) + axis.y * s;
+    r.m[1]  = axis.y * axis.x * (1 - c) + axis.z * s;
+    r.m[5]  = c + axis.y * axis.y * (1 - c);
+    r.m[9]  = axis.y * axis.z * (1 - c) - axis.x * s;
+    r.m[2]  = axis.z * axis.x * (1 - c) - axis.y * s;
+    r.m[6]  = axis.z * axis.y * (1 - c) + axis.x * s;
+    r.m[10] = c + axis.z * axis.z * (1 - c);
+    return r;
+}
 
 const char *vertexShaderSource = "#version 330 core\n"
                                  "layout (location = 0) in vec2 aPos;\n"
@@ -95,6 +112,7 @@ const char *fragmentShaderSource = "#version 330 core\n"
 
 GLFWwindow *InitializeWindow()
 {
+    // Create the app window and register all input callbacks before rendering starts.
     if (!glfwInit())
         return nullptr;
 
@@ -135,6 +153,7 @@ GLFWwindow *InitializeWindow()
 
 void SetupResources()
 {
+    // Build the minimal GPU path used only to display the CPU framebuffer texture on a quad.
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
     glCompileShader(vertexShader);
@@ -150,24 +169,6 @@ void SetupResources()
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
-
-
-    float meshColor[3] = { appState.meshColor[0], appState.meshColor[1], appState.meshColor[2] };
-    if (meshColor[0] == 0.0f && meshColor[1] == 0.0f && meshColor[2] == 0.0f) {
-        meshColor[0] = 1.0f; meshColor[1] = 1.0f; meshColor[2] = 1.0f;
-    }
-
-    float lightAzimuth = appState.azimuth;
-    float lightElevation = appState.elevation;
-    float ambientStrength = appState.ambientStrength;
-
-    if (lightAzimuth == 0.0f && lightElevation == 0.0f) {
-        lightAzimuth = 45.0f;
-        lightElevation = 45.0f;
-    }
-    if (ambientStrength <= 0.0f) {
-        ambientStrength = 0.25f; 
-    }
 
     float viewportRight = 1.0f - 2.0f * ((float)PANEL_WIDTH / (float)WINDOW_WIDTH);
     float vertices[] = {
@@ -218,6 +219,14 @@ void UpdateQuadVertices(int windowWidth)
 
 void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std::string initialFilePath)
 {
+    // Graphics pipeline roadmap (CPU rasterizer path in this project):
+    // 1) Build model/view/projection transforms.
+    // 2) Transform mesh vertices into clip space then screen space.
+    // 3) Rasterize triangles on CPU with depth test + Gouraud shading + optional texturing.
+    // 4) Upload framebuffer pixels into a GL texture and draw a fullscreen quad.
+    // 5) Draw ImGui controls, then present the frame.
+
+    // Runtime resources/state for the currently displayed mesh and optional textures/background.
     Texture tex;
     bool useTexture = appState.useTexture;
     std::string texPath = appState.texturePath;
@@ -334,6 +343,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
 
     while (!glfwWindowShouldClose(window))
     {
+        // Frame pipeline: input -> CPU rasterization into framebuffer -> upload to GL texture -> UI -> present.
         tracker.Tick();
 
         if (tracker.HasFpsUpdated())
@@ -354,6 +364,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         Mat4 view = camera.GetViewMatrix();
         Mat4 projection = Mat4::perspective(camera.zoom * 3.14159f / 180.0f, (float)VIEWPORT_WIDTH / (float)VIEWPORT_HEIGHT, 0.1f, 100.0f);
         Vec3 fwdOff = camera.front * (-scrollOffset);
+        // Model = pan/scroll translation + current object rotation.
         Mat4 model  = Mat4::translate(Vec3(g_interaction.pan.x + fwdOff.x,
                                            g_interaction.pan.y + fwdOff.y,
                                            g_interaction.pan.z + fwdOff.z))
@@ -434,6 +445,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         screenDepths.resize(currentMesh.vertices.size());
         clipWs.resize(currentMesh.vertices.size());
 
+        // Vertex stage: convert each mesh vertex into screen position and depth.
         for (size_t i = 0; i < currentMesh.vertices.size(); ++i)
         {
             const Vec3 &v = currentMesh.vertices[i];
@@ -502,6 +514,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
 
                 uint32_t faceColor = (i == debugHitFace) ? 0xFFFF00FF : color;
 
+                // Raster stage: fill one triangle with depth test, lighting, and optional texture sampling.
                 DrawTriangle(*fb, a, b, c,
                              screenDepths[i0], screenDepths[i1], screenDepths[i2],
                              faceColor,
@@ -560,6 +573,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
         }
 
         glBindTexture(GL_TEXTURE_2D, textureID);
+        // Present stage: upload CPU pixels to the GPU texture used by the fullscreen quad.
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT,
                         GL_RGBA, GL_UNSIGNED_BYTE, fb->getPixels());
 
@@ -575,6 +589,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
 
         ImGui::SetNextWindowPos(ImVec2((float)(currentWindowWidth - PANEL_WIDTH), 0.0f), ImGuiCond_Always);
         ImGui::SetNextWindowSize(ImVec2((float)PANEL_WIDTH, (float)currentWindowHeight), ImGuiCond_Always);
+        // UI stage: all runtime controls live in this Scene panel.
         ImGui::Begin("Scene", nullptr,
                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
 
@@ -832,6 +847,7 @@ void RunRenderLoop(GLFWwindow *window, const Mesh &mesh, AppState &appState, std
 
 void Cleanup(GLFWwindow *window)
 {
+    // Persist user state, release UI/GL resources, then close the windowing system.
   
     recentFilesManager.Save();
     appState.Save();
@@ -855,6 +871,13 @@ void Cleanup(GLFWwindow *window)
 
 int main()
 {
+    // Main startup roadmap:
+    // 1) Load persisted app configuration.
+    // 2) Resolve initial OBJ path (recent file -> saved state -> default model).
+    // 3) Load mesh data from disk.
+    // 4) Initialize window/GL/ImGui resources.
+    // 5) Enter render loop and persist state during shutdown.
+
     ObjLoader loader;
 
     appState.Load();
@@ -907,13 +930,13 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int /*mod
             debugHitFace = SIZE_MAX;
     }
     if (button == GLFW_MOUSE_BUTTON_RIGHT) {
-        rmbDown = (action == GLFW_PRESS);
-        g_interaction.draggingPan = rmbDown;
+        g_interaction.draggingPan = (action == GLFW_PRESS);
     }
 }
 
 void cursor_pos_callback(GLFWwindow* /*window*/, double xposIn, double yposIn)
 {
+    // Mouse drag updates either pan or arcball rotation, depending on active button state.
     if (ImGui::GetIO().WantCaptureMouse) return;
 
     float xpos = (float)xposIn;
@@ -933,23 +956,14 @@ void cursor_pos_callback(GLFWwindow* /*window*/, double xposIn, double yposIn)
     }
 
     if (g_interaction.draggingRot) {
-        // Arcball: map mouse delta to rotation axis/angle
+        // Arcball-style rotation around a ray-picked pivot to keep drag behavior anchored on the mesh.
         float angleX = -dy * (3.14159265f / VIEWPORT_HEIGHT);  // pitch around camera right
         float angleY = dx * (3.14159265f / VIEWPORT_WIDTH);   // yaw around camera up
 
         Vec3 axisX = camera.right;
         Vec3 axisY = Vec3(0.0f, 1.0f, 0.0f);  // world Y keeps roll from drifting
 
-        auto makeRodrigues = [](Vec3 a, float angle) -> Mat4 {
-            float c = cosf(angle), s = sinf(angle);
-            Mat4 r = Mat4::identity();
-            r.m[0]  = c + a.x*a.x*(1-c);     r.m[4]  = a.x*a.y*(1-c)-a.z*s; r.m[8]  = a.x*a.z*(1-c)+a.y*s;
-            r.m[1]  = a.y*a.x*(1-c)+a.z*s;   r.m[5]  = c + a.y*a.y*(1-c);   r.m[9]  = a.y*a.z*(1-c)-a.x*s;
-            r.m[2]  = a.z*a.x*(1-c)-a.y*s;   r.m[6]  = a.z*a.y*(1-c)+a.x*s; r.m[10] = c + a.z*a.z*(1-c);
-            return r;
-        };
-
-        Mat4 dRot = makeRodrigues(axisY, angleY) * makeRodrigues(axisX, angleX);
+        Mat4 dRot = MakeRodrigues(axisY, angleY) * MakeRodrigues(axisX, angleX);
 
         // Apply around pivot — must operate on the full model matrix, not just rotation,
         // otherwise the translation component shifts the pivot off the surface.
@@ -976,6 +990,7 @@ void cursor_pos_callback(GLFWwindow* /*window*/, double xposIn, double yposIn)
 
 void processInput(GLFWwindow *window)
 {
+    // Keyboard controls either move the camera or rotate the model, based on X toggle mode.
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 
@@ -988,6 +1003,7 @@ void processInput(GLFWwindow *window)
     static bool cameraMode = false;
     bool xIsPressed = glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS;
 
+    // Toggle between moving the camera and rotating the model in-place.
     if (xIsPressed && !xWasPressed)
         cameraMode = !cameraMode;
     xWasPressed = xIsPressed;
@@ -1016,15 +1032,7 @@ void processInput(GLFWwindow *window)
 
         if (manualRotX != 0.0f || manualRotY != 0.0f)
         {
-            auto makeRodrigues = [](Vec3 a, float angle) -> Mat4 {
-                float c = cosf(angle), s = sinf(angle);
-                Mat4 r = Mat4::identity();
-                r.m[0] = c + a.x*a.x*(1-c); r.m[4] = a.x*a.y*(1-c)-a.z*s; r.m[8] = a.x*a.z*(1-c)+a.y*s;
-                r.m[1] = a.y*a.x*(1-c)+a.z*s; r.m[5] = c + a.y*a.y*(1-c); r.m[9] = a.y*a.z*(1-c)-a.x*s;
-                r.m[2] = a.z*a.x*(1-c)-a.y*s; r.m[6] = a.z*a.y*(1-c)+a.x*s; r.m[10] = c + a.z*a.z*(1-c);
-                return r;
-            };
-            Mat4 dRot = makeRodrigues(Vec3(0, 1, 0), manualRotY) * makeRodrigues(camera.right, manualRotX);
+            Mat4 dRot = MakeRodrigues(Vec3(0, 1, 0), manualRotY) * MakeRodrigues(camera.right, manualRotX);
             g_interaction.rotation = dRot * g_interaction.rotation;
         }
     }
@@ -1042,15 +1050,7 @@ void processInput(GLFWwindow *window)
     {
         float idleY = speed * 0.2f * deltaTime;
         float idleX = speed * 0.05f * deltaTime;
-        auto makeRodrigues = [](Vec3 a, float angle) -> Mat4 {
-            float c = cosf(angle), s = sinf(angle);
-            Mat4 r = Mat4::identity();
-            r.m[0] = c + a.x*a.x*(1-c); r.m[4] = a.x*a.y*(1-c)-a.z*s; r.m[8] = a.x*a.z*(1-c)+a.y*s;
-            r.m[1] = a.y*a.x*(1-c)+a.z*s; r.m[5] = c + a.y*a.y*(1-c); r.m[9] = a.y*a.z*(1-c)-a.x*s;
-            r.m[2] = a.z*a.x*(1-c)-a.y*s; r.m[6] = a.z*a.y*(1-c)+a.x*s; r.m[10] = c + a.z*a.z*(1-c);
-            return r;
-        };
-        g_interaction.rotation = makeRodrigues(Vec3(0, 1, 0), idleY) * makeRodrigues(Vec3(1, 0, 0), idleX) * g_interaction.rotation;
+        g_interaction.rotation = MakeRodrigues(Vec3(0, 1, 0), idleY) * MakeRodrigues(Vec3(1, 0, 0), idleX) * g_interaction.rotation;
     }
 
     static bool fWasPressed = false;

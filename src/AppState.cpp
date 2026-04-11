@@ -1,13 +1,11 @@
 #include "../include/AppState.h"
 #include <fstream>
 #include <sstream>
-#include <limits>
-
-const char *STATE_FILE = "app_state.txt";
 
 void AppState::Save() const
 {
-    std::ofstream file(STATE_FILE);
+    // Write current UI/render settings so the next run restores the same scene setup.
+    std::ofstream file(AppState::STATE_FILE);
     if (!file.is_open())
         return;
 
@@ -24,7 +22,8 @@ void AppState::Save() const
 
 void AppState::Load()
 {
-    std::ifstream file(STATE_FILE);
+    // Restore previously saved UI/render settings if a state file exists.
+    std::ifstream file(AppState::STATE_FILE);
     if (!file.is_open())
         return;
 

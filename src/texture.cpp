@@ -4,6 +4,7 @@
 #include <iostream>
 
 bool Texture::load(const std::string& filepath) {
+    // Load an image file and store raw RGBA bytes for CPU sampling.
     int channels;
     data = stbi_load(filepath.c_str(), &width, &height, &channels, 4); // force 4 channels (RGBA)
 if (!data) {
@@ -15,6 +16,7 @@ if (!data) {
 }
 
 uint32_t Texture::sample(float u, float v) const {
+    // Convert UV coordinates to a texel lookup and return one RGBA color.
     if (!data) return 0xFF00FFFF; // magenta = missing texture
 
     // wrap UVs so values outside 0-1 tile instead of going out of bounds
