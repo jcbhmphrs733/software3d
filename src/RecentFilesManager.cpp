@@ -28,6 +28,7 @@ void RecentFilesManager::Add(const std::string &filepath)
 
 void RecentFilesManager::Load()
 {
+    // Read last-opened file and recent file list from disk.
     std::ifstream file(CONFIG_FILE);
 
     if (!file.is_open())
@@ -51,6 +52,7 @@ void RecentFilesManager::Load()
 
 void RecentFilesManager::Save() const
 {
+    // Persist last-opened file and recent file list for the next app launch.
     std::ofstream file(CONFIG_FILE);
 
     if (!file.is_open())

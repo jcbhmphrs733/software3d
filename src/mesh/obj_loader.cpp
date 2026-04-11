@@ -4,6 +4,7 @@
 #include <iostream>
 
 Mesh ObjLoader::load(const std::string& filepath) {
+    // Parse OBJ text into mesh arrays used by the renderer (positions, UVs, triangle indices).
     Mesh mesh;
 
     std::ifstream file(filepath);

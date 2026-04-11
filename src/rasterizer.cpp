@@ -14,6 +14,7 @@ void DrawTriangle(Framebuffer& fb,
                   const Texture* tex,
                   Vec2 uva, Vec2 uvb, Vec2 uvc,
                   float wa, float wb, float wc) {
+    // For one triangle, walk pixels in its bounding box and write the closest shaded color.
     int minX = (int)std::max(0.0f,                      std::min({a.x, b.x, c.x}));
     int minY = (int)std::max(0.0f,                      std::min({a.y, b.y, c.y}));
     int maxX = (int)std::min((float)fb.getWidth()  - 1, std::max({a.x, b.x, c.x}));
@@ -85,6 +86,7 @@ void DrawTriangle(Framebuffer& fb,
 }
 
 void DrawLine(Framebuffer& fb, Vec2 a, Vec2 b, float za, float zb, uint32_t color) {
+    // Draw an edge/guide line in screen space with interpolated depth.
     int x0 = (int)a.x, y0 = (int)a.y;
     int x1 = (int)b.x, y1 = (int)b.y;
 
