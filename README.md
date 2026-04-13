@@ -15,6 +15,11 @@ Triangle Rasterization: A custom algorithm to fill and render triangles onto a p
 
 Version Control: Managed via GitHub for iterative development and tracking.
 
+# Running the Program
+The 3D Rasterizer Program can be found in the 3D Rasterizer folder at the base of this repository. 
+
+Included in the folder is a assets folder that has models and textures that can be used in the program
+
 # Technical Stack
 Language: C++
 
