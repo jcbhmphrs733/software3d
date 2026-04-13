@@ -18,6 +18,7 @@ Framebuffer::~Framebuffer() {
 }
 
 void Framebuffer::clear(uint32_t color) {
+    // Fill every pixel with one background color at the start of a frame.
     unsigned char r = (color >> 24) & 0xFF;
     unsigned char g = (color >> 16) & 0xFF;
     unsigned char b = (color >> 8) & 0xFF;
@@ -37,6 +38,7 @@ void Framebuffer::clear(uint32_t color) {
 }
 
 void Framebuffer::blitBackground(const unsigned char* src) {
+    // Copy a full RGBA background image into the framebuffer in one pass.
     memcpy(pixels, src, (size_t)width * height * 4);
 }
 
@@ -45,6 +47,7 @@ void Framebuffer::clearDepth() {
 }
 
 bool Framebuffer::setPixelDepth(int x, int y, float d, uint32_t color) {
+    // Depth test: only overwrite this pixel if the new fragment is closer.
     if (x < 0 || x >= width || y < 0 || y >= height) return false;
 
     int i = y * width + x;
@@ -57,18 +60,6 @@ bool Framebuffer::setPixelDepth(int x, int y, float d, uint32_t color) {
     pixels[index + 2] = (color >> 8)  & 0xFF;
     pixels[index + 3] =  color        & 0xFF;
     return true;
-}
-
-void Framebuffer::setPixel(int x, int y, uint32_t color) {
-    if (x < 0 || x >= width || y < 0 || y >= height) {
-        return;
-    }
-
-    int index = (y * width + x) * 4;
-    pixels[index + 0] = (color >> 24) & 0xFF;
-    pixels[index + 1] = (color >> 16) & 0xFF;
-    pixels[index + 2] = (color >> 8) & 0xFF;
-    pixels[index + 3] = color & 0xFF;
 }
 
 const unsigned char* Framebuffer::getPixels() const {

@@ -4,7 +4,6 @@
 
 #include "math/vec3.h"
 #include "math/mat4.h"
-#include <vector>
 #include <cmath>
 
 enum CameraMovement {
@@ -80,12 +79,6 @@ public:
             right = front.cross(up).normalized();
             up = right.cross(front).normalized();
         }
-    }
-
-    void ProcessMouseScroll(float yoffset) {
-        zoom -= yoffset;
-        if (zoom < 1.0f) zoom = 1.0f;
-        if (zoom > 45.0f) zoom = 45.0f;
     }
 
 private:

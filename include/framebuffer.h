@@ -1,6 +1,5 @@
 #pragma once
 #include <cstdint>
-#include <limits>
 
 // framebuffer.h
 // This is a declaration of the framebuffer class, it defines the interface without any implementation details
@@ -15,7 +14,6 @@ public:
 
     // only writes color if depth is closer than what's already stored
     bool setPixelDepth(int x, int y, float depth, uint32_t color);
-    void setPixel(int x, int y, uint32_t color); // unconditional write (for lines)
 
     const unsigned char* getPixels() const;
     int getWidth() const;
