@@ -1,9 +1,9 @@
 meshColor 1 1 1
-useTexture 0
+useTexture 1
 texturePath /home/haithcock/Desktop/CSE499/3drasterizer/software3d/assets/textures/metal.jpg
-azimuth 245.9
-elevation 63.4
-ambientStrength 0.3
-showOutline 0
-backgroundPath /home/haithcock/Desktop/CSE499/3drasterizer/software3d/assets/backgrounds/bg3.jpg
+azimuth 61.5
+elevation 60.8
+ambientStrength 0.27
+showOutline 1
+backgroundPath /home/haithcock/Desktop/CSE499/3drasterizer/software3d/assets/backgrounds/bg1.jpg
 objPath assets/models/monkey.obj
